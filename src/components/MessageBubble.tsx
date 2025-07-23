@@ -31,9 +31,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isDark })
         )}
       >
         <p className="whitespace-pre-wrap">{message.content}</p>
-        {message.isStreaming && (
-          <span className="inline-block w-1 h-4 ml-1 bg-current animate-pulse" />
-        )}
+        {/* Removed the streaming cursor entirely - Mira doesn't need a cursor! */}
       </div>
     </div>
   );

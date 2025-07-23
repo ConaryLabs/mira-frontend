@@ -1,3 +1,4 @@
+// src/types/websocket.ts
 export interface WsChunk {
   type: 'chunk';
   content: string;
@@ -34,6 +35,14 @@ export interface WsError {
 
 export interface WsDone {
   type: 'done';
+}
+
+export interface WsPing {
+  type: 'ping';
+}
+
+export interface WsPong {
+  type: 'pong';
 }
 
 export type WsServerMessage = 
