@@ -35,272 +35,197 @@ export const ChatContainer: React.FC = () => {
   const handleServerMessage = useCallback((msg: WsServerMessage | string) => {
     console.log('Handling message:', msg);
     
-    // If it's a string (shouldn't happen with Sprint 2 backend)
-    if (typeof msg === 'string') {
-      console.log('Received plain text:', msg);
+    // Handle structured WebSocket messages
+    if (typeof msg === 'object' && msg.type) {
+      switch (msg.type) {
+        case 'chunk':
+          console.log('Received chunk:', msg);
+          setIsThinking(false);
+          
+          if (msg.mood) {
+            setCurrentMood(msg.mood);
+          }
+          
+          setMessages(prev => {
+            const lastMsg = prev[prev.length - 1];
+            
+            if (lastMsg && lastMsg.id === currentStreamId.current && lastMsg.isStreaming) {
+              // Append to existing streaming message
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMsg,
+                  content: lastMsg.content + msg.content,
+                  mood: msg.mood || lastMsg.mood,
+                }
+              ];
+            } else {
+              // Start new streaming message
+              const newId = Date.now().toString();
+              currentStreamId.current = newId;
+              return [
+                ...prev,
+                {
+                  id: newId,
+                  role: 'mira',
+                  content: msg.content,
+                  mood: msg.mood,
+                  timestamp: new Date(),
+                  isStreaming: true,
+                }
+              ];
+            }
+          });
+          break;
+          
+        case 'aside':
+          console.log('Received aside:', msg);
+          const aside: Aside = {
+            id: Date.now().toString(),
+            cue: msg.emotional_cue,
+            intensity: msg.intensity || 0.5,
+            timestamp: new Date(),
+          };
+          
+          setAsides(prev => [...prev, aside]);
+          
+          // Clear any existing timer for this aside
+          const existingTimer = asideTimers.current.get(aside.id);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
+          }
+          
+          // Remove aside after 4 seconds
+          const timer = setTimeout(() => {
+            setAsides(prev => prev.filter(a => a.id !== aside.id));
+            asideTimers.current.delete(aside.id);
+          }, 4000);
+          
+          asideTimers.current.set(aside.id, timer);
+          break;
+          
+        case 'done':
+          console.log('Stream done');
+          setMessages(prev => prev.map(msg => 
+            msg.id === currentStreamId.current 
+              ? { ...msg, isStreaming: false }
+              : msg
+          ));
+          currentStreamId.current = '';
+          break;
+          
+        case 'persona_update':
+          console.log('Persona updated:', msg);
+          if (msg.mood) {
+            setCurrentMood(msg.mood);
+          }
+          break;
+          
+        case 'error':
+          console.error('Error from server:', msg.message);
+          setConnectionError(msg.message);
+          setTimeout(() => setConnectionError(''), 5000);
+          break;
+      }
+    } else if (typeof msg === 'string') {
+      // Fallback for plain text (shouldn't happen with updated backend)
+      console.warn('Received plain text instead of structured message:', msg);
       setIsThinking(false);
       
-      // Try to parse the old format just in case
+      // Parse if it's in the old format
       const outputMatch = msg.match(/output:\s*(.*?)(?=\s*mood:|$)/s);
       const moodMatch = msg.match(/mood:\s*(.*?)$/);
       
-      const content = outputMatch ? outputMatch[1].trim() : msg;
-      const mood = moodMatch ? moodMatch[1].trim() : 'present';
-      
-      if (mood) {
-        setCurrentMood(mood.split(',')[0].trim());
+      if (outputMatch || moodMatch) {
+        const content = outputMatch ? outputMatch[1].trim() : msg;
+        const mood = moodMatch ? moodMatch[1].trim() : 'present';
+        
+        if (mood) {
+          setCurrentMood(mood.split(',')[0].trim());
+        }
+        
+        const newId = Date.now().toString();
+        setMessages(prev => [
+          ...prev,
+          {
+            id: newId,
+            role: 'mira',
+            content: content,
+            mood: mood,
+            timestamp: new Date(),
+            isStreaming: false,
+          }
+        ]);
+      } else {
+        // Just display as-is
+        const newId = Date.now().toString();
+        setMessages(prev => [
+          ...prev,
+          {
+            id: newId,
+            role: 'mira',
+            content: msg,
+            mood: currentMood,
+            timestamp: new Date(),
+            isStreaming: false,
+          }
+        ]);
       }
-      
-      const newId = Date.now().toString();
-      setMessages(prev => [
-        ...prev,
-        {
-          id: newId,
-          role: 'mira',
-          content: content,
-          mood: mood,
-          timestamp: new Date(),
-          isStreaming: false,
-        }
-      ]);
-      return;
     }
-    
-    // Handle structured WebSocket messages
-    switch (msg.type) {
-      case 'chunk':
-        console.log('Received chunk:', msg);
-        setIsThinking(false);
-        
-        if (msg.mood) {
-          setCurrentMood(msg.mood);
-        }
-        
-        setMessages(prev => {
-          const lastMsg = prev[prev.length - 1];
-          
-          if (lastMsg && lastMsg.id === currentStreamId.current && lastMsg.isStreaming) {
-            // Append to existing streaming message
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...lastMsg,
-                content: lastMsg.content + msg.content,
-                mood: msg.mood || lastMsg.mood,
-              }
-            ];
-          } else {
-            // Start new streaming message
-            const newId = Date.now().toString();
-            currentStreamId.current = newId;
-            return [
-              ...prev,
-              {
-                id: newId,
-                role: 'mira',
-                content: msg.content,
-                mood: msg.mood,
-                timestamp: new Date(),
-                isStreaming: true,
-              }
-            ];
-          }
-        });
-        break;
-        
-      case 'aside':
-        console.log('Received aside:', msg);
-        const aside: Aside = {
-          id: Date.now().toString(),
-          cue: msg.emotional_cue,
-          intensity: msg.intensity || 0.5,
-          timestamp: new Date(),
-        };
-        
-        setAsides(prev => [...prev, aside]);
-        
-        // Clear any existing timer for this aside
-        const existingTimer = asideTimers.current.get(aside.id);
-        if (existingTimer) {
-          clearTimeout(existingTimer);
-        }
-        
-        // Remove aside after 4 seconds
-        const timer = setTimeout(() => {
-          setAsides(prev => prev.filter(a => a.id !== aside.id));
-          asideTimers.current.delete(aside.id);
-        }, 4000);
-        
-        asideTimers.current.set(aside.id, timer);
-        break;
-        
-      case 'done':
-        console.log('Stream done');
-        setMessages(prev => prev.map(msg => 
-          msg.id === currentStreamId.current 
-            ? { ...msg, isStreaming: false }
-            : msg
-        ));
-        currentStreamId.current = '';
-        break;
-        
-      case 'error':
-        console.log('Received error:', msg);
-        setIsThinking(false);
-        setConnectionError(msg.message);
-        setTimeout(() => setConnectionError(''), 5000);
-        break;
-        
-      default:
-        console.log('Unknown message type:', msg);
-    }
-  }, []);
-      case 'chunk':
-        setIsThinking(false);
-        
-        if (msg.mood) {
-          setCurrentMood(msg.mood);
-        }
-        
-        setMessages(prev => {
-          const lastMsg = prev[prev.length - 1];
-          
-          if (lastMsg && lastMsg.id === currentStreamId.current && lastMsg.isStreaming) {
-            // Append to existing streaming message
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...lastMsg,
-                content: lastMsg.content + msg.content,
-                mood: msg.mood || lastMsg.mood,
-              }
-            ];
-          } else {
-            // Start new streaming message
-            const newId = Date.now().toString();
-            currentStreamId.current = newId;
-            return [
-              ...prev,
-              {
-                id: newId,
-                role: 'mira',
-                content: msg.content,
-                mood: msg.mood,
-                timestamp: new Date(),
-                isStreaming: true,
-              }
-            ];
-          }
-        });
-        break;
-        
-      case 'aside':
-        const aside: Aside = {
-          id: Date.now().toString(),
-          cue: msg.emotional_cue,
-          intensity: msg.intensity || 0.5,
-          timestamp: new Date(),
-        };
-        
-        setAsides(prev => [...prev, aside]);
-        
-        // Clear any existing timer for this aside
-        const existingTimer = asideTimers.current.get(aside.id);
-        if (existingTimer) {
-          clearTimeout(existingTimer);
-        }
-        
-        // Remove aside after 4 seconds
-        const timer = setTimeout(() => {
-          setAsides(prev => prev.filter(a => a.id !== aside.id));
-          asideTimers.current.delete(aside.id);
-        }, 4000);
-        
-        asideTimers.current.set(aside.id, timer);
-        break;
-        
-      case 'done':
-        setMessages(prev => prev.map(msg => 
-          msg.id === currentStreamId.current 
-            ? { ...msg, isStreaming: false }
-            : msg
-        ));
-        currentStreamId.current = '';
-        break;
-        
-      case 'error':
-        setIsThinking(false);
-        setConnectionError(msg.message);
-        setTimeout(() => setConnectionError(''), 5000);
-        break;
-    }
-  }, []);
+  }, [currentMood]);
 
   // Determine WebSocket URL based on current location
   const getWebSocketUrl = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    
-    // If we're on mira.conary.io, use the proper WebSocket path
-    if (host.includes('mira.conary.io')) {
-      return `${protocol}//${host}/ws/chat`;
-    }
-    
-    // Otherwise use localhost for development
-    return 'ws://localhost:8080/ws/chat';
+    return `${protocol}//${host}/ws/chat`;
   };
 
   const { isConnected, send } = useWebSocket({
     url: getWebSocketUrl(),
-    onMessage: handleServerMessage,
-    onConnect: () => setConnectionError(''),
-    onError: () => setConnectionError('Lost connection. Trying again...'),
+    onMessage: handleServerMessage
   });
 
-  const handleSendMessage = (content: string) => {
+  const handleSendMessage = useCallback((content: string) => {
+    if (!content.trim() || !isConnected) return;
+
+    // Add user message to chat
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: content.trim(),
+      content,
       timestamp: new Date(),
     };
     
     setMessages(prev => [...prev, userMessage]);
     setIsThinking(true);
-    
+
+    // Send via WebSocket
     send({
       type: 'message',
-      content: userMessage.content,
-      persona: null,
+      content,
     });
-  };
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      asideTimers.current.forEach(timer => clearTimeout(timer));
-      asideTimers.current.clear();
-    };
-  }, []);
+  }, [send, isConnected]);
 
   return (
-    <div className={`flex flex-col h-screen transition-colors duration-300 ${
-      isDark ? 'bg-gray-900 text-gray-100' : 'bg-gray-50 text-gray-900'
-    }`}>
+    <div className="relative flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* Mood background */}
       <MoodBackground mood={currentMood} />
       
       {/* Header */}
-      <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-700/50 dark:border-gray-700/50">
+      <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
               M
             </div>
-            <TypingIndicator visible={isThinking} />
+            {isThinking && (
+              <TypingIndicator visible={true} />
+            )}
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Mira</h1>
-            <p className="text-xs opacity-70">
+            <h1 className="font-semibold">Mira</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {isConnected ? (isThinking ? '...' : 'here') : 'connecting...'}
             </p>
           </div>
