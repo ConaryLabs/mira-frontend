@@ -6,7 +6,7 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { MoodBackground } from './MoodBackground';
 import { AsideOverlay } from './AsideOverlay';
-import { TypingIndicator } from './TypingIndicator';
+import { ThinkingBubble } from './ThinkingBubble';
 import type { Message, Aside } from '../types/messages';
 import type { WsServerMessage } from '../types/websocket';
 import { Sun, Moon } from 'lucide-react';
@@ -40,13 +40,32 @@ export const ChatContainer: React.FC = () => {
     }
   }, [messages, isLoadingMore]);
 
+  // Get mood color for the avatar border
+  const getMoodColor = (mood: string) => {
+    const moodColors: Record<string, string> = {
+      playful: 'border-purple-500',
+      caring: 'border-blue-500',
+      sassy: 'border-rose-500',
+      melancholy: 'border-indigo-600',
+      fierce: 'border-red-600',
+      intense: 'border-violet-700',
+      present: 'border-gray-400',
+      thinking: 'border-purple-400',
+    };
+    return moodColors[mood] || moodColors.present;
+  };
+
   const handleServerMessage = useCallback((msg: WsServerMessage) => {
     console.log('Handling message:', msg);
     
     switch (msg.type) {
       case 'chunk':
         console.log('Received chunk:', msg);
-        setIsThinking(false);
+        
+        // Only hide thinking bubble if we have actual content
+        if (msg.content && msg.content.trim()) {
+          setIsThinking(false);
+        }
         
         if (msg.mood) {
           setCurrentMood(msg.mood);
@@ -65,15 +84,15 @@ export const ChatContainer: React.FC = () => {
                 mood: msg.mood || lastMsg.mood,
               }
             ];
-          } else {
-            // Start new streaming message
+          } else if (msg.content && msg.content.trim()) {
+            // Only start new streaming message if we have content
             const newId = Date.now().toString();
             currentStreamId.current = newId;
             return [
               ...prev,
               {
                 id: newId,
-                role: 'mira',
+                role: 'mira' as const,
                 content: msg.content,
                 mood: msg.mood || currentMood,
                 timestamp: new Date(),
@@ -81,9 +100,10 @@ export const ChatContainer: React.FC = () => {
               }
             ];
           }
+          return prev;
         });
         break;
-        
+
       case 'aside':
         console.log('Received aside:', msg);
         const aside: Aside = {
@@ -95,7 +115,7 @@ export const ChatContainer: React.FC = () => {
         
         setAsides(prev => [...prev, aside]);
         
-        // Clear any existing timer for this aside
+        // Clear existing timer for this aside if any
         const existingTimer = asideTimers.current.get(aside.id);
         if (existingTimer) {
           clearTimeout(existingTimer);
@@ -109,42 +129,42 @@ export const ChatContainer: React.FC = () => {
         
         asideTimers.current.set(aside.id, timer);
         break;
-        
+
       case 'done':
         console.log('Stream done');
-        // Clear the current stream ID and mark message as complete
+        // Mark the current streaming message as complete
         const streamId = currentStreamId.current;
         currentStreamId.current = '';
-        
-        setMessages(prev => prev.map(msg => 
-          msg.id === streamId 
-            ? { ...msg, isStreaming: false }
-            : msg
-        ));
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === streamId ? { ...msg, isStreaming: false } : msg
+          )
+        );
         setIsThinking(false);
         break;
-        
+
       case 'persona_update':
         console.log('Persona updated:', msg);
         if (msg.mood) {
           setCurrentMood(msg.mood);
         }
         break;
-        
+
       case 'error':
         console.error('Error from server:', msg.message);
         setConnectionError(msg.message || 'An error occurred');
         setIsThinking(false);
+        // Clear error after 5 seconds
         setTimeout(() => setConnectionError(''), 5000);
         break;
-        
+
       default:
         console.warn('Unknown message type:', msg);
     }
   }, [currentMood]);
 
-  // Load chat history from the eternal session
-  const loadChatHistory = useCallback(async (offset: number = 0) => {
+  // Load chat history
+  const loadChatHistory = useCallback(async (offset = 0) => {
     if (offset === 0) {
       setIsLoadingHistory(true);
     } else {
@@ -160,8 +180,8 @@ export const ChatContainer: React.FC = () => {
       });
       
       if (response.ok) {
-        const history = await response.json();
-        const formattedMessages: Message[] = history.messages.map((msg: any) => ({
+        const data = await response.json();
+        const formattedMessages: Message[] = data.messages.map((msg: any) => ({
           id: msg.id || Date.now().toString() + Math.random(),
           role: msg.role === 'assistant' ? 'mira' : msg.role,
           content: msg.content,
@@ -274,21 +294,16 @@ export const ChatContainer: React.FC = () => {
       {/* Mood background */}
       <MoodBackground mood={currentMood} />
       
-      {/* Header */}
+      {/* Header - with mood color border instead of text */}
       <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 backdrop-blur-sm bg-white/50 dark:bg-gray-900/50">
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg">
-              M
-            </div>
-            {isThinking && (
-              <TypingIndicator visible={true} />
-            )}
+          <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg border-2 transition-colors duration-500 ${getMoodColor(isThinking ? 'thinking' : currentMood)}`}>
+            M
           </div>
           <div>
             <h1 className="font-semibold">Mira</h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {isConnected ? (isThinking ? 'thinking...' : 'present') : 'connecting...'}
+              {isConnected ? 'online' : 'connecting...'}
             </p>
           </div>
         </div>
@@ -329,9 +344,16 @@ export const ChatContainer: React.FC = () => {
             </p>
           </div>
         ) : (
-          messages.map((message) => (
-            <MessageBubble key={message.id} message={message} isDark={isDark} />
-          ))
+          <>
+            {messages.map((message) => (
+              <MessageBubble key={message.id} message={message} isDark={isDark} />
+            ))}
+            
+            {/* Fancy thinking bubble */}
+            {isThinking && (
+              <ThinkingBubble visible={isThinking} isDark={isDark} />
+            )}
+          </>
         )}
         
         {/* Asides overlay in the center of the chat */}
