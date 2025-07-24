@@ -172,7 +172,8 @@ export const ChatContainer: React.FC = () => {
     }
     
     try {
-      const response = await fetch(`/api/chat/history?limit=30&offset=${offset}`, {
+      // FIXED: Changed from '/api/chat/history' to '/chat/history'
+      const response = await fetch(`/chat/history?limit=30&offset=${offset}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
