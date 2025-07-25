@@ -72,24 +72,23 @@ export const ChatContainer: React.FC = () => {
         }
         
         setMessages(prev => {
-          const lastMsg = prev[prev.length - 1];
+          const firstMsg = prev[0];
           
-          if (lastMsg && lastMsg.id === currentStreamId.current && lastMsg.isStreaming) {
-            // Append to existing streaming message
+          if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
+            // Update the existing streaming message
             return [
-              ...prev.slice(0, -1),
               {
-                ...lastMsg,
-                content: lastMsg.content + msg.content,
-                mood: msg.mood || lastMsg.mood,
-              }
+                ...firstMsg,
+                content: firstMsg.content + msg.content,
+                mood: msg.mood || firstMsg.mood,
+              },
+              ...prev.slice(1)
             ];
           } else if (msg.content && msg.content.trim()) {
-            // Only start new streaming message if we have content
+            // Start new streaming message at the beginning
             const newId = Date.now().toString();
             currentStreamId.current = newId;
             return [
-              ...prev,
               {
                 id: newId,
                 role: 'mira' as const,
@@ -97,7 +96,8 @@ export const ChatContainer: React.FC = () => {
                 mood: msg.mood || currentMood,
                 timestamp: new Date(),
                 isStreaming: true,
-              }
+              },
+              ...prev
             ];
           }
           return prev;
@@ -200,8 +200,8 @@ export const ChatContainer: React.FC = () => {
             setCurrentMood(lastMiraMsg.mood);
           }
         } else {
-          // Prepend older messages
-          setMessages(prev => [...formattedMessages, ...prev]);
+          // Append older messages to the end
+          setMessages(prev => [...prev, ...formattedMessages]);
         }
         
         // If we got fewer messages than requested, there are no more
@@ -263,7 +263,7 @@ export const ChatContainer: React.FC = () => {
   const handleSendMessage = useCallback((content: string) => {
     if (!content.trim()) return;
 
-    // Add user message to chat
+    // Add user message to chat (prepend to beginning)
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -271,7 +271,7 @@ export const ChatContainer: React.FC = () => {
       timestamp: new Date(),
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [userMessage, ...prev]);
     setIsThinking(true);
     setConnectionError(''); // Clear any existing errors
 
@@ -346,7 +346,7 @@ export const ChatContainer: React.FC = () => {
           </div>
         ) : (
           <>
-            {messages.map((message) => (
+            {[...messages].reverse().map((message) => (
               <MessageBubble key={message.id} message={message} isDark={isDark} />
             ))}
             
