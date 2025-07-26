@@ -5,15 +5,28 @@ import { useTheme } from '../hooks/useTheme';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { MoodBackground } from './MoodBackground';
-import { AsideOverlay } from './AsideOverlay';
 import { ThinkingBubble } from './ThinkingBubble';
+import { ProjectSidebar } from './ProjectSidebar';
+import { SidebarToggle } from './SidebarToggle';
+import { ArtifactViewer } from './ArtifactViewer';
+import { ArtifactToggle } from './ArtifactToggle';
 import type { Message, Aside } from '../types/messages';
 import type { WsServerMessage } from '../types/websocket';
 import { Sun, Moon } from 'lucide-react';
 
+// Track artifacts from current session
+interface SessionArtifact {
+  id: string;
+  name: string;
+  content: string;
+  artifact_type: 'code' | 'document' | 'data';
+  language?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export const ChatContainer: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [asides, setAsides] = useState<Aside[]>([]);
   const [currentMood, setCurrentMood] = useState('present');
   const [isThinking, setIsThinking] = useState(false);
   const [connectionError, setConnectionError] = useState('');
@@ -22,10 +35,17 @@ export const ChatContainer: React.FC = () => {
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [historyOffset, setHistoryOffset] = useState(0);
   
+  // New state for projects and artifacts
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [showArtifacts, setShowArtifacts] = useState(false);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const [artifactCount, setArtifactCount] = useState(0);
+  const [sessionArtifacts, setSessionArtifacts] = useState<SessionArtifact[]>([]);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const currentStreamId = useRef<string>('');
-  const asideTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   
   const { isDark, toggleTheme } = useTheme();
 
@@ -40,6 +60,21 @@ export const ChatContainer: React.FC = () => {
     }
   }, [messages, isLoadingMore]);
 
+  // Fetch artifact count when project changes
+  useEffect(() => {
+    if (currentProjectId) {
+      fetch(`http://localhost:8080/projects/${currentProjectId}/artifacts`)
+        .then(res => res.json())
+        .then(data => {
+          setArtifactCount(data.artifacts?.length || 0);
+        })
+        .catch(err => console.error('Failed to fetch artifacts:', err));
+    } else {
+      setArtifactCount(0);
+      setShowArtifacts(false);
+    }
+  }, [currentProjectId]);
+
   // Get mood color for the avatar border
   const getMoodColor = (mood: string) => {
     const moodColors: Record<string, string> = {
@@ -53,6 +88,19 @@ export const ChatContainer: React.FC = () => {
       thinking: 'border-purple-400',
     };
     return moodColors[mood] || moodColors.present;
+  };
+
+  const handleProjectSelect = (projectId: string) => {
+    setCurrentProjectId(projectId);
+    setIsSidebarOpen(false);
+    setSelectedArtifactId(null);
+    setShowArtifacts(false);
+    // Optionally clear messages or load project-specific history
+  };
+
+  const handleArtifactClick = (artifactId: string) => {
+    setSelectedArtifactId(artifactId);
+    setShowArtifacts(true);
   };
 
   const handleServerMessage = useCallback((msg: WsServerMessage) => {
@@ -106,28 +154,35 @@ export const ChatContainer: React.FC = () => {
 
       case 'aside':
         console.log('Received aside:', msg);
-        const aside: Aside = {
+        // Add aside as a special message type in the chat
+        const asideMessage: Message = {
           id: Date.now().toString(),
-          cue: msg.emotional_cue,
-          intensity: msg.intensity || 0.5,
+          role: 'aside',  // Now properly typed
+          content: msg.emotional_cue,
+          mood: currentMood,
           timestamp: new Date(),
+          isStreaming: false,
+          intensity: msg.intensity,
         };
         
-        setAsides(prev => [...prev, aside]);
-        
-        // Clear existing timer for this aside if any
-        const existingTimer = asideTimers.current.get(aside.id);
-        if (existingTimer) {
-          clearTimeout(existingTimer);
+        // Add to messages array so it appears inline
+        setMessages(prev => [asideMessage, ...prev]);
+        break;
+
+      case 'artifact':
+        // Handle artifact creation messages from backend
+        if (msg.artifact) {
+          const newArtifact: SessionArtifact = {
+            id: msg.artifact.id,
+            name: msg.artifact.name,
+            content: msg.artifact.content,
+            artifact_type: msg.artifact.artifact_type,
+            language: msg.artifact.language,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setSessionArtifacts(prev => [...prev, newArtifact]);
         }
-        
-        // Remove aside after 4 seconds
-        const timer = setTimeout(() => {
-          setAsides(prev => prev.filter(a => a.id !== aside.id));
-          asideTimers.current.delete(aside.id);
-        }, 4000);
-        
-        asideTimers.current.set(aside.id, timer);
         break;
 
       case 'done':
@@ -141,13 +196,6 @@ export const ChatContainer: React.FC = () => {
           )
         );
         setIsThinking(false);
-        break;
-
-      case 'persona_update':
-        console.log('Persona updated:', msg);
-        if (msg.mood) {
-          setCurrentMood(msg.mood);
-        }
         break;
 
       case 'error':
@@ -172,7 +220,6 @@ export const ChatContainer: React.FC = () => {
     }
     
     try {
-      // FIXED: Changed from '/api/chat/history' to '/chat/history'
       const response = await fetch(`/chat/history?limit=30&offset=${offset}`, {
         method: 'GET',
         headers: {
@@ -275,111 +322,175 @@ export const ChatContainer: React.FC = () => {
     setIsThinking(true);
     setConnectionError(''); // Clear any existing errors
 
-    // Send via WebSocket (will queue if not connected)
+    // Send via WebSocket with project context
     send({
       type: 'message',
       content,
+      project_id: currentProjectId,
     });
-  }, [send]);
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      asideTimers.current.forEach(timer => clearTimeout(timer));
-      asideTimers.current.clear();
-    };
-  }, []);
+  }, [send, currentProjectId]);
 
   return (
     <div className="relative flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       {/* Mood background */}
       <MoodBackground mood={currentMood} />
       
-      {/* Header - with mood color border instead of text */}
-      <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 backdrop-blur-sm bg-white/50 dark:bg-gray-900/50">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg border-2 transition-colors duration-500 ${getMoodColor(isThinking ? 'thinking' : currentMood)}`}>
-            M
-          </div>
-          <div>
-            <h1 className="font-semibold">Mira</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {isConnected ? 'online' : 'connecting...'}
-            </p>
-          </div>
-        </div>
-        
-        <button
-          onClick={toggleTheme}
-          className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
-          aria-label="Toggle theme"
-        >
-          {isDark ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-      </header>
-      
-      {/* Messages */}
-      <div 
-        ref={messagesContainerRef}
-        className="relative flex-1 overflow-y-auto p-4 space-y-4"
-        onScroll={handleScroll}
-      >
-        {/* Loading more indicator */}
-        {isLoadingMore && (
-          <div className="text-center py-2 text-gray-400 dark:text-gray-600">
-            <p className="text-sm animate-pulse">Loading more messages...</p>
-          </div>
-        )}
-        
-        {isLoadingHistory ? (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
-            <p className="text-center">
-              Loading our conversation...<br />
-              <span className="text-sm animate-pulse">Remembering everything 💭</span>
-            </p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
-            <p className="text-center text-sm">
-              {/* No prompt - just empty state */}
-            </p>
-          </div>
-        ) : (
-          <>
-            {[...messages].reverse().map((message) => (
-              <MessageBubble key={message.id} message={message} isDark={isDark} />
-            ))}
-            
-            {/* Fancy thinking bubble */}
-            {isThinking && (
-              <ThinkingBubble visible={isThinking} isDark={isDark} />
-            )}
-          </>
-        )}
-        
-        {/* Asides overlay in the center of the chat */}
-        {asides.length > 0 && (
-          <div className="fixed inset-x-0 top-1/3 pointer-events-none z-20">
-            <AsideOverlay asides={asides} />
-          </div>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </div>
-      
-      {/* Connection error */}
-      {connectionError && (
-        <div className="relative z-10 px-4 py-2 bg-red-500/10 border-t border-red-500/20">
-          <p className="text-sm text-red-600 dark:text-red-400 text-center">{connectionError}</p>
-        </div>
-      )}
-      
-      {/* Input */}
-      <ChatInput 
-        onSend={handleSendMessage}
-        disabled={false} // Always allow sending - will queue if disconnected
+      {/* Project Sidebar */}
+      <ProjectSidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        currentProjectId={currentProjectId}
+        onProjectSelect={handleProjectSelect}
         isDark={isDark}
       />
+      
+      {/* Main chat area - adjust width when artifacts are shown */}
+      <div className={`
+        flex-1 flex flex-col relative
+        ${showArtifacts && currentProjectId ? 'mr-[600px]' : ''}
+      `}>
+        {/* Header - with mood color border instead of text */}
+        <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 backdrop-blur-sm bg-white/50 dark:bg-gray-900/50">
+          <div className="flex items-center gap-3">
+            {/* Add toggle button */}
+            <SidebarToggle 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              isDark={isDark}
+              hasActiveProject={!!currentProjectId}
+            />
+            
+            <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg border-2 transition-colors duration-500 ${getMoodColor(isThinking ? 'thinking' : currentMood)}`}>
+              M
+            </div>
+            <div>
+              <h1 className="font-semibold">Mira</h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {isConnected ? 'online' : 'connecting...'}
+              </p>
+            </div>
+          </div>
+          
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
+            aria-label="Toggle theme"
+          >
+            {isDark ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+        </header>
+        
+        {/* Messages */}
+        <div 
+          ref={messagesContainerRef}
+          className="relative flex-1 overflow-y-auto p-4 space-y-4"
+          onScroll={handleScroll}
+        >
+          {/* Loading more indicator */}
+          {isLoadingMore && (
+            <div className="text-center py-2 text-gray-400 dark:text-gray-600">
+              <p className="text-sm animate-pulse">Loading more messages...</p>
+            </div>
+          )}
+          
+          {isLoadingHistory ? (
+            <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
+              <p className="text-center">
+                Loading our conversation...<br />
+                <span className="text-sm animate-pulse">Remembering everything 💭</span>
+              </p>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
+              <p className="text-center text-sm">
+                {/* No prompt - just empty state */}
+              </p>
+            </div>
+          ) : (
+            <>
+              {[...messages].reverse().map((message) => (
+                message.role === 'aside' ? (
+                  // Render aside inline with special styling
+                  <div key={message.id} className="flex justify-center my-3 px-4">
+                    <div 
+                      className={`
+                        max-w-md text-sm italic text-center
+                        animate-in fade-in duration-700
+                        ${isDark 
+                          ? 'text-white/40 hover:text-white/50' 
+                          : 'text-gray-600/60 hover:text-gray-600/70'
+                        }
+                        transition-colors duration-300
+                      `}
+                      style={{
+                        fontSize: message.intensity 
+                          ? `${0.8 + (message.intensity * 0.2)}rem` 
+                          : '0.875rem'
+                      }}
+                    >
+                      {message.content}
+                    </div>
+                  </div>
+                ) : (
+                  // Regular message bubble with artifact support
+                  <MessageBubble 
+                    key={message.id} 
+                    message={message} 
+                    isDark={isDark}
+                    onArtifactClick={currentProjectId ? handleArtifactClick : undefined}
+                  />
+                )
+              ))}
+              
+              {/* Fancy thinking bubble */}
+              {isThinking && (
+                <ThinkingBubble visible={isThinking} isDark={isDark} />
+              )}
+            </>
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
+        
+        {/* Artifact toggle - positioned above the input */}
+        {currentProjectId && (
+          <div className="absolute bottom-20 right-4 z-20">
+            <ArtifactToggle
+              isOpen={showArtifacts}
+              onClick={() => setShowArtifacts(!showArtifacts)}
+              artifactCount={artifactCount}
+              isDark={isDark}
+            />
+          </div>
+        )}
+        
+        {/* Connection error */}
+        {connectionError && (
+          <div className="relative z-10 px-4 py-2 bg-red-500/10 border-t border-red-500/20">
+            <p className="text-sm text-red-600 dark:text-red-400 text-center">{connectionError}</p>
+          </div>
+        )}
+        
+        {/* Input */}
+        <ChatInput 
+          onSend={handleSendMessage}
+          disabled={false} // Always allow sending - will queue if disconnected
+          isDark={isDark}
+        />
+      </div>
+      
+      {/* Artifact viewer - slides in from right */}
+      {showArtifacts && currentProjectId && (
+        <ArtifactViewer
+          projectId={currentProjectId}
+          isDark={isDark}
+          onClose={() => {
+            setShowArtifacts(false);
+            setSelectedArtifactId(null);
+          }}
+          selectedArtifactId={selectedArtifactId || undefined}
+          recentArtifacts={sessionArtifacts}
+        />
+      )}
     </div>
   );
 };

@@ -1,10 +1,13 @@
+// src/types/messages.ts
+
 export interface Message {
   id: string;
-  role: 'user' | 'mira';
+  role: 'user' | 'mira' | 'aside';  // Added 'aside' as a valid role
   content: string;
   mood?: string;
   timestamp: Date;
   isStreaming?: boolean;
+  intensity?: number;  // Added for aside intensity (0-1 scale)
 }
 
 export interface Aside {

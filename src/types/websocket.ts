@@ -2,8 +2,7 @@
 export interface WsChunk {
   type: 'chunk';
   content: string;
-  persona: string;
-  mood?: string;
+  mood?: string;  // Only mood is visible, not persona
 }
 
 export interface WsAside {
@@ -12,20 +11,19 @@ export interface WsAside {
   intensity?: number;
 }
 
-export interface WsPersonaUpdate {
-  type: 'persona_update';
-  persona: string;
-  mood?: string;
-  transition_note?: string;
+export interface WsArtifact {
+  type: 'artifact';
+  artifact: {
+    id: string;
+    name: string;
+    content: string;
+    artifact_type: 'code' | 'document' | 'data';
+    language?: string;
+  };
 }
 
-export interface WsMemoryStats {
-  type: 'memory_stats';
-  total_memories: number;
-  high_salience_count: number;
-  avg_salience: number;
-  mood_distribution: Record<string, number>;
-}
+// REMOVED: WsPersonaUpdate - personas change invisibly
+// REMOVED: WsMemoryStats - too mechanical for natural conversation
 
 export interface WsError {
   type: 'error';
@@ -48,16 +46,15 @@ export interface WsPong {
 export type WsServerMessage = 
   | WsChunk 
   | WsAside 
-  | WsPersonaUpdate 
-  | WsMemoryStats 
+  | WsArtifact
   | WsError 
-  | WsDone;
+  | WsDone;  // No PersonaUpdate or MemoryStats
 
 export interface WsClientMessage {
-  type: 'message' | 'typing' | 'switch_persona' | 'get_memory_stats';
+  type: 'message' | 'typing';  // No switch_persona or get_memory_stats
   content?: string;
-  persona?: string | null;
+  persona?: string | null;  // DEPRECATED - will be ignored by backend
   active?: boolean;
-  smooth_transition?: boolean;
   session_id?: string | null;
+  project_id?: string | null;  // Added for project context
 }
