@@ -10,7 +10,7 @@ interface SidebarToggleProps {
   hasActiveProject?: boolean;
 }
 
-export const SidebarToggle: React.FC<SidebarToggleProps> = ({ 
+const SidebarToggle: React.FC<SidebarToggleProps> = ({ 
   onClick, 
   isDark,
   hasActiveProject = false
@@ -32,3 +32,5 @@ export const SidebarToggle: React.FC<SidebarToggleProps> = ({
     </button>
   );
 };
+
+export default SidebarToggle;

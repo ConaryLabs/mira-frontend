@@ -1,4 +1,3 @@
-// src/components/ChatContainer.tsx
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useTheme } from '../hooks/useTheme';
@@ -6,15 +5,21 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { MoodBackground } from './MoodBackground';
 import { ThinkingBubble } from './ThinkingBubble';
-import { ProjectSidebar } from './ProjectSidebar';
-import { SidebarToggle } from './SidebarToggle';
-import { ArtifactViewer } from './ArtifactViewer';
-import { ArtifactToggle } from './ArtifactToggle';
+import ProjectSidebar from './ProjectSidebar';
+import SidebarToggle from './SidebarToggle';
+import ArtifactViewer from './ArtifactViewer';
+import ArtifactToggle from './ArtifactToggle';
 import type { Message, Aside } from '../types/messages';
 import type { WsServerMessage } from '../types/websocket';
 import { Sun, Moon } from 'lucide-react';
 
-// Track artifacts from current session
+interface Project {
+  id: string;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface SessionArtifact {
   id: string;
   name: string;
@@ -26,6 +31,50 @@ interface SessionArtifact {
 }
 
 export const ChatContainer: React.FC = () => {
+  // --- PROJECT STATE ---
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // COLLAPSED by default!
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+
+  const fetchProjects = () => {
+    fetch('/api/projects')
+      .then(res => res.json())
+      .then(data => {
+        console.log('Fetched projects:', data);
+        setProjects(data.projects || []);
+      })
+      .catch(err => {
+        console.error('Failed to fetch projects:', err);
+      });
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  const handleProjectCreate = (name: string) => {
+    fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+      .then(res => res.json())
+      .then(newProject => {
+        setProjects(prev => [...prev, newProject]);
+      })
+      .catch(err => {
+        console.error('Failed to create project:', err);
+      });
+  };
+
+  const handleProjectSelect = (projectId: string) => {
+    setCurrentProjectId(projectId);
+    setIsSidebarOpen(false);
+    setSelectedArtifactId(null);
+    setShowArtifacts(false);
+  };
+
+  // --- ARTIFACT/CHAT STATE ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentMood, setCurrentMood] = useState('present');
   const [isThinking, setIsThinking] = useState(false);
@@ -34,19 +83,15 @@ export const ChatContainer: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [historyOffset, setHistoryOffset] = useState(0);
-  
-  // New state for projects and artifacts
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [artifactCount, setArtifactCount] = useState(0);
   const [sessionArtifacts, setSessionArtifacts] = useState<SessionArtifact[]>([]);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const currentStreamId = useRef<string>('');
-  
+
   const { isDark, toggleTheme } = useTheme();
 
   const scrollToBottom = () => {
@@ -54,16 +99,14 @@ export const ChatContainer: React.FC = () => {
   };
 
   useEffect(() => {
-    // Only auto-scroll if not loading more history
     if (!isLoadingMore) {
       scrollToBottom();
     }
   }, [messages, isLoadingMore]);
 
-  // Fetch artifact count when project changes
   useEffect(() => {
     if (currentProjectId) {
-      fetch(`http://localhost:8080/projects/${currentProjectId}/artifacts`)
+      fetch(`/api/projects/${currentProjectId}/artifacts`)
         .then(res => res.json())
         .then(data => {
           setArtifactCount(data.artifacts?.length || 0);
@@ -75,7 +118,6 @@ export const ChatContainer: React.FC = () => {
     }
   }, [currentProjectId]);
 
-  // Get mood color for the avatar border
   const getMoodColor = (mood: string) => {
     const moodColors: Record<string, string> = {
       playful: 'border-purple-500',
@@ -90,40 +132,19 @@ export const ChatContainer: React.FC = () => {
     return moodColors[mood] || moodColors.present;
   };
 
-  const handleProjectSelect = (projectId: string) => {
-    setCurrentProjectId(projectId);
-    setIsSidebarOpen(false);
-    setSelectedArtifactId(null);
-    setShowArtifacts(false);
-    // Optionally clear messages or load project-specific history
-  };
-
   const handleArtifactClick = (artifactId: string) => {
     setSelectedArtifactId(artifactId);
     setShowArtifacts(true);
   };
 
   const handleServerMessage = useCallback((msg: WsServerMessage) => {
-    console.log('Handling message:', msg);
-    
     switch (msg.type) {
       case 'chunk':
-        console.log('Received chunk:', msg);
-        
-        // Only hide thinking bubble if we have actual content
-        if (msg.content && msg.content.trim()) {
-          setIsThinking(false);
-        }
-        
-        if (msg.mood) {
-          setCurrentMood(msg.mood);
-        }
-        
+        if (msg.content && msg.content.trim()) setIsThinking(false);
+        if (msg.mood) setCurrentMood(msg.mood);
         setMessages(prev => {
           const firstMsg = prev[0];
-          
           if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
-            // Update the existing streaming message
             return [
               {
                 ...firstMsg,
@@ -133,7 +154,6 @@ export const ChatContainer: React.FC = () => {
               ...prev.slice(1)
             ];
           } else if (msg.content && msg.content.trim()) {
-            // Start new streaming message at the beginning
             const newId = Date.now().toString();
             currentStreamId.current = newId;
             return [
@@ -151,26 +171,19 @@ export const ChatContainer: React.FC = () => {
           return prev;
         });
         break;
-
       case 'aside':
-        console.log('Received aside:', msg);
-        // Add aside as a special message type in the chat
         const asideMessage: Message = {
           id: Date.now().toString(),
-          role: 'aside',  // Now properly typed
+          role: 'aside',
           content: msg.emotional_cue,
           mood: currentMood,
           timestamp: new Date(),
           isStreaming: false,
           intensity: msg.intensity,
         };
-        
-        // Add to messages array so it appears inline
         setMessages(prev => [asideMessage, ...prev]);
         break;
-
       case 'artifact':
-        // Handle artifact creation messages from backend
         if (msg.artifact) {
           const newArtifact: SessionArtifact = {
             id: msg.artifact.id,
@@ -184,51 +197,37 @@ export const ChatContainer: React.FC = () => {
           setSessionArtifacts(prev => [...prev, newArtifact]);
         }
         break;
-
       case 'done':
-        console.log('Stream done');
-        // Mark the current streaming message as complete
         const streamId = currentStreamId.current;
         currentStreamId.current = '';
-        setMessages(prev => 
-          prev.map(msg => 
+        setMessages(prev =>
+          prev.map(msg =>
             msg.id === streamId ? { ...msg, isStreaming: false } : msg
           )
         );
         setIsThinking(false);
         break;
-
       case 'error':
-        console.error('Error from server:', msg.message);
         setConnectionError(msg.message || 'An error occurred');
         setIsThinking(false);
-        // Clear error after 5 seconds
         setTimeout(() => setConnectionError(''), 5000);
         break;
-
       default:
         console.warn('Unknown message type:', msg);
     }
   }, [currentMood]);
 
-  // Load chat history
   const loadChatHistory = useCallback(async (offset = 0) => {
-    if (offset === 0) {
-      setIsLoadingHistory(true);
-    } else {
-      setIsLoadingMore(true);
-    }
-    
+    if (offset === 0) setIsLoadingHistory(true);
+    else setIsLoadingMore(true);
     try {
-      const response = await fetch(`/chat/history?limit=30&offset=${offset}`, {
+      const response = await fetch(`/api/chat/history?limit=30&offset=${offset}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       });
-      
       if (response.ok) {
         const data = await response.json();
+        console.log("Chat history data:", data); // Debug
         const formattedMessages: Message[] = data.messages.map((msg: any) => ({
           id: msg.id || Date.now().toString() + Math.random(),
           role: msg.role === 'assistant' ? 'mira' : msg.role,
@@ -237,21 +236,13 @@ export const ChatContainer: React.FC = () => {
           timestamp: new Date(msg.timestamp),
           isStreaming: false,
         }));
-        
         if (offset === 0) {
           setMessages(formattedMessages);
-          
-          // Set mood from last assistant message
           const lastMiraMsg = formattedMessages.filter(m => m.role === 'mira').pop();
-          if (lastMiraMsg?.mood) {
-            setCurrentMood(lastMiraMsg.mood);
-          }
+          if (lastMiraMsg?.mood) setCurrentMood(lastMiraMsg.mood);
         } else {
-          // Append older messages to the end
           setMessages(prev => [...prev, ...formattedMessages]);
         }
-        
-        // If we got fewer messages than requested, there are no more
         setHasMoreHistory(formattedMessages.length === 30);
         setHistoryOffset(offset + formattedMessages.length);
       }
@@ -263,26 +254,18 @@ export const ChatContainer: React.FC = () => {
     }
   }, []);
 
-  // Handle scroll for lazy loading
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current || isLoadingMore || !hasMoreHistory) return;
-    
     const { scrollTop } = messagesContainerRef.current;
-    
-    // Load more when scrolled to top
     if (scrollTop === 0) {
       loadChatHistory(historyOffset);
     }
   }, [historyOffset, isLoadingMore, hasMoreHistory, loadChatHistory]);
 
-  // Memoize WebSocket URL to prevent reconnection loops
   const webSocketUrl = useMemo(() => {
-    // For development
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return 'ws://localhost:8080/ws/chat';
     }
-    
-    // For production
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     return `${protocol}//${host}/ws/chat`;
@@ -292,16 +275,11 @@ export const ChatContainer: React.FC = () => {
     url: webSocketUrl,
     onMessage: handleServerMessage,
     onConnect: () => {
-      console.log('Chat connected to WebSocket');
       setConnectionError('');
-      // Request chat history after connecting
       loadChatHistory();
     },
-    onDisconnect: () => {
-      console.log('Chat disconnected from WebSocket');
-    },
+    onDisconnect: () => {},
     onError: (error) => {
-      console.error('WebSocket error in chat:', error);
       setConnectionError('Connection error occurred');
       setTimeout(() => setConnectionError(''), 5000);
     }
@@ -309,20 +287,15 @@ export const ChatContainer: React.FC = () => {
 
   const handleSendMessage = useCallback((content: string) => {
     if (!content.trim()) return;
-
-    // Add user message to chat (prepend to beginning)
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content,
       timestamp: new Date(),
     };
-    
     setMessages(prev => [userMessage, ...prev]);
     setIsThinking(true);
-    setConnectionError(''); // Clear any existing errors
-
-    // Send via WebSocket with project context
+    setConnectionError('');
     send({
       type: 'message',
       content,
@@ -330,35 +303,35 @@ export const ChatContainer: React.FC = () => {
     });
   }, [send, currentProjectId]);
 
+  // Debug: Always log sidebar state!
+  console.log("Rendering ProjectSidebar with isOpen:", isSidebarOpen, "projects:", projects);
+
   return (
-    <div className="relative flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      {/* Mood background */}
-      <MoodBackground mood={currentMood} />
-      
-      {/* Project Sidebar */}
+    <div className="relative flex h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* Sidebar overlays (fixed), rest is chat area. */}
       <ProjectSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
+        projects={projects}
         currentProjectId={currentProjectId}
         onProjectSelect={handleProjectSelect}
+        onProjectCreate={handleProjectCreate}
         isDark={isDark}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
-      
-      {/* Main chat area - adjust width when artifacts are shown */}
-      <div className={`
-        flex-1 flex flex-col relative
-        ${showArtifacts && currentProjectId ? 'mr-[600px]' : ''}
-      `}>
-        {/* Header - with mood color border instead of text */}
+
+      {/* Main chat area: Always rendered, never covered by sidebar */}
+      <div className="flex-1 flex flex-col relative min-w-0">
+        {/* Mood background */}
+        <MoodBackground mood={currentMood} />
+
+        {/* Header (Mira bar): Always shows */}
         <header className="relative z-10 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 backdrop-blur-sm bg-white/50 dark:bg-gray-900/50">
           <div className="flex items-center gap-3">
-            {/* Add toggle button */}
             <SidebarToggle 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               isDark={isDark}
               hasActiveProject={!!currentProjectId}
             />
-            
             <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-lg border-2 transition-colors duration-500 ${getMoodColor(isThinking ? 'thinking' : currentMood)}`}>
               M
             </div>
@@ -369,7 +342,6 @@ export const ChatContainer: React.FC = () => {
               </p>
             </div>
           </div>
-          
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
@@ -378,20 +350,17 @@ export const ChatContainer: React.FC = () => {
             {isDark ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         </header>
-        
-        {/* Messages */}
+
         <div 
           ref={messagesContainerRef}
           className="relative flex-1 overflow-y-auto p-4 space-y-4"
           onScroll={handleScroll}
         >
-          {/* Loading more indicator */}
           {isLoadingMore && (
             <div className="text-center py-2 text-gray-400 dark:text-gray-600">
               <p className="text-sm animate-pulse">Loading more messages...</p>
             </div>
           )}
-          
           {isLoadingHistory ? (
             <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
               <p className="text-center">
@@ -409,7 +378,6 @@ export const ChatContainer: React.FC = () => {
             <>
               {[...messages].reverse().map((message) => (
                 message.role === 'aside' ? (
-                  // Render aside inline with special styling
                   <div key={message.id} className="flex justify-center my-3 px-4">
                     <div 
                       className={`
@@ -431,7 +399,6 @@ export const ChatContainer: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  // Regular message bubble with artifact support
                   <MessageBubble 
                     key={message.id} 
                     message={message} 
@@ -440,18 +407,13 @@ export const ChatContainer: React.FC = () => {
                   />
                 )
               ))}
-              
-              {/* Fancy thinking bubble */}
               {isThinking && (
                 <ThinkingBubble visible={isThinking} isDark={isDark} />
               )}
             </>
           )}
-          
           <div ref={messagesEndRef} />
         </div>
-        
-        {/* Artifact toggle - positioned above the input */}
         {currentProjectId && (
           <div className="absolute bottom-20 right-4 z-20">
             <ArtifactToggle
@@ -462,23 +424,17 @@ export const ChatContainer: React.FC = () => {
             />
           </div>
         )}
-        
-        {/* Connection error */}
         {connectionError && (
           <div className="relative z-10 px-4 py-2 bg-red-500/10 border-t border-red-500/20">
             <p className="text-sm text-red-600 dark:text-red-400 text-center">{connectionError}</p>
           </div>
         )}
-        
-        {/* Input */}
         <ChatInput 
           onSend={handleSendMessage}
-          disabled={false} // Always allow sending - will queue if disconnected
+          disabled={false}
           isDark={isDark}
         />
       </div>
-      
-      {/* Artifact viewer - slides in from right */}
       {showArtifacts && currentProjectId && (
         <ArtifactViewer
           projectId={currentProjectId}

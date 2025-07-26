@@ -11,7 +11,7 @@ interface ArtifactToggleProps {
   isDark: boolean;
 }
 
-export const ArtifactToggle: React.FC<ArtifactToggleProps> = ({
+const ArtifactToggle: React.FC<ArtifactToggleProps> = ({
   isOpen,
   onClick,
   artifactCount,
@@ -41,3 +41,5 @@ export const ArtifactToggle: React.FC<ArtifactToggleProps> = ({
     </button>
   );
 };
+
+export default ArtifactToggle;

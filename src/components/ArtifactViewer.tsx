@@ -29,7 +29,7 @@ interface ArtifactViewerProps {
   recentArtifacts?: Artifact[]; // From the current chat session
 }
 
-export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
+const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
   projectId,
   isDark,
   onClose,
@@ -449,3 +449,5 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
     </div>
   );
 };
+
+export default ArtifactViewer;
