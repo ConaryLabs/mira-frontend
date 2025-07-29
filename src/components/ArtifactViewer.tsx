@@ -1,8 +1,7 @@
 // src/components/ArtifactViewer.tsx
-// NEW FILE
-
 import React, { useState, useEffect } from 'react';
-import { FileCode, FileText, Copy, Check, X, Save, Menu, ChevronDown } from 'lucide-react';
+import { X, FileText, Code, Database, Clock, GitBranch } from 'lucide-react';
+import { ArtifactFileManager } from './ArtifactFileManager';
 
 interface Artifact {
   id: string;
@@ -12,13 +11,6 @@ interface Artifact {
   language?: string;
   created_at: string;
   updated_at: string;
-  version?: number;
-}
-
-interface ArtifactVersion {
-  version: number;
-  created_at: string;
-  content: string;
 }
 
 interface ArtifactViewerProps {
@@ -26,7 +18,8 @@ interface ArtifactViewerProps {
   isDark: boolean;
   onClose: () => void;
   selectedArtifactId?: string;
-  recentArtifacts?: Artifact[]; // From the current chat session
+  recentArtifacts?: Artifact[];
+  isExpanded?: boolean;
 }
 
 const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
@@ -34,418 +27,230 @@ const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
   isDark,
   onClose,
   selectedArtifactId,
-  recentArtifacts = []
+  recentArtifacts = [],
+  isExpanded = false
 }) => {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [showArtifactMenu, setShowArtifactMenu] = useState(false);
-  const [showVersionMenu, setShowVersionMenu] = useState(false);
-  const [versions, setVersions] = useState<ArtifactVersion[]>([]);
-  const [currentVersion, setCurrentVersion] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'artifacts' | 'files'>('artifacts');
+  const [isEditingFile, setIsEditingFile] = useState(false);
 
   useEffect(() => {
     fetchArtifacts();
   }, [projectId]);
 
   useEffect(() => {
-    // If a specific artifact is requested, select it
-    if (selectedArtifactId) {
-      // First check recent artifacts (from current session)
-      const recentArtifact = recentArtifacts.find(a => a.id === selectedArtifactId);
-      if (recentArtifact) {
-        setSelectedArtifact(recentArtifact);
-        fetchVersions(recentArtifact.id);
-      } else {
-        // Then check project artifacts
-        const artifact = artifacts.find(a => a.id === selectedArtifactId);
-        if (artifact) {
-          setSelectedArtifact(artifact);
-          fetchVersions(artifact.id);
-        }
+    if (selectedArtifactId && artifacts.length > 0) {
+      const artifact = artifacts.find(a => a.id === selectedArtifactId) || 
+                      recentArtifacts.find(a => a.id === selectedArtifactId);
+      if (artifact) {
+        setSelectedArtifact(artifact);
+        setActiveTab('artifacts');
       }
     }
   }, [selectedArtifactId, artifacts, recentArtifacts]);
 
   const fetchArtifacts = async () => {
     try {
-      const response = await fetch(`http://localhost:8080/projects/${projectId}/artifacts`);
-      if (response.ok) {
-        const data = await response.json();
-        setArtifacts(data.artifacts || []);
-      }
+      setLoading(true);
+      const response = await fetch(`/api/projects/${projectId}/artifacts`);
+      const data = await response.json();
+      
+      // Merge recent artifacts with fetched ones
+      const allArtifacts = [...recentArtifacts];
+      data.artifacts?.forEach((artifact: Artifact) => {
+        if (!allArtifacts.find(a => a.id === artifact.id)) {
+          allArtifacts.push(artifact);
+        }
+      });
+      
+      setArtifacts(allArtifacts);
     } catch (error) {
       console.error('Failed to fetch artifacts:', error);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const fetchVersions = async (artifactId: string) => {
-    try {
-      const response = await fetch(`http://localhost:8080/artifacts/${artifactId}/versions`);
-      if (response.ok) {
-        const data = await response.json();
-        setVersions(data.versions || []);
-        setCurrentVersion(data.versions?.[0]?.version || null);
-      }
-    } catch (error) {
-      console.error('Failed to fetch versions:', error);
-      // Create a default version if none exist
-      setVersions([{
-        version: 1,
-        created_at: new Date().toISOString(),
-        content: selectedArtifact?.content || ''
-      }]);
-      setCurrentVersion(1);
-    }
-  };
-
-  const copyToClipboard = async () => {
-    if (!selectedArtifact) return;
-    
-    try {
-      await navigator.clipboard.writeText(selectedArtifact.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
-    }
-  };
-
-  const saveToProject = async () => {
-    if (!selectedArtifact || saving) return;
-
-    setSaving(true);
-    try {
-      // Check if this artifact already exists in the project
-      const existingArtifact = artifacts.find(a => a.name === selectedArtifact.name);
-      
-      if (existingArtifact) {
-        // Update existing artifact (create new version)
-        const response = await fetch(`http://localhost:8080/projects/${projectId}/artifacts/${existingArtifact.id}/versions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: selectedArtifact.content
-          })
-        });
-
-        if (response.ok) {
-          setSaved(true);
-          fetchVersions(existingArtifact.id);
-          setTimeout(() => setSaved(false), 2000);
-        }
-      } else {
-        // Create new artifact in project
-        const response = await fetch(`http://localhost:8080/projects/${projectId}/artifacts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: selectedArtifact.name,
-            content: selectedArtifact.content,
-            artifact_type: selectedArtifact.artifact_type,
-            language: selectedArtifact.language
-          })
-        });
-
-        if (response.ok) {
-          const newArtifact = await response.json();
-          setArtifacts([...artifacts, newArtifact]);
-          setSaved(true);
-          fetchVersions(newArtifact.id);
-          setTimeout(() => setSaved(false), 2000);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to save artifact:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const loadVersion = async (version: number) => {
-    const versionData = versions.find(v => v.version === version);
-    if (versionData && selectedArtifact) {
-      setSelectedArtifact({
-        ...selectedArtifact,
-        content: versionData.content,
-        version: version
-      });
-      setCurrentVersion(version);
-      setShowVersionMenu(false);
-    }
-  };
-
-  const getLanguageLabel = (artifact: Artifact) => {
-    if (artifact.artifact_type === 'code' && artifact.language) {
-      return artifact.language;
-    }
-    return artifact.artifact_type;
-  };
-
-  const getIcon = (type: string) => {
+  const getArtifactIcon = (type: string) => {
     switch (type) {
       case 'code':
-        return <FileCode size={16} />;
+        return <Code className="w-4 h-4" />;
       case 'document':
-        return <FileText size={16} />;
+        return <FileText className="w-4 h-4" />;
+      case 'data':
+        return <Database className="w-4 h-4" />;
       default:
-        return <FileText size={16} />;
+        return <FileText className="w-4 h-4" />;
     }
   };
 
-  // Combine recent artifacts with project artifacts for the menu
-  const allArtifacts = [...recentArtifacts, ...artifacts];
-  const uniqueArtifacts = Array.from(new Map(allArtifacts.map(a => [a.id, a])).values());
+  const getLanguageLabel = (language?: string) => {
+    if (!language) return '';
+    const labels: Record<string, string> = {
+      javascript: 'JS',
+      typescript: 'TS',
+      python: 'PY',
+      java: 'JAVA',
+      cpp: 'C++',
+      go: 'GO',
+      rust: 'RS',
+      markdown: 'MD',
+    };
+    return labels[language] || language.toUpperCase();
+  };
 
-  if (!selectedArtifact && !isLoading) {
-    return null;
-  }
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString();
+  };
 
   return (
-    <div className={`
-      fixed right-0 top-0 bottom-0 w-[600px] z-40
-      flex flex-col shadow-xl
-      ${isDark 
-        ? 'bg-gray-900 border-l border-gray-800' 
-        : 'bg-white border-l border-gray-200'
-      }
-    `}>
+    <div className={`${isEditingFile ? 'w-[800px]' : 'w-96'} h-full ${isDark ? 'bg-gray-800' : 'bg-white'} border-l ${isDark ? 'border-gray-700' : 'border-gray-200'} flex flex-col transition-all duration-300`}>
       {/* Header */}
-      <div className={`
-        flex items-center justify-between px-4 py-3 border-b
-        ${isDark ? 'border-gray-800' : 'border-gray-200'}
-      `}>
-        <div className="flex items-center gap-3">
-          {/* Hamburger menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowArtifactMenu(!showArtifactMenu)}
-              className={`
-                p-1.5 rounded-md transition-colors
-                ${isDark 
-                  ? 'hover:bg-gray-800 text-gray-400' 
-                  : 'hover:bg-gray-100 text-gray-600'
-                }
-              `}
-              title="All artifacts"
-            >
-              <Menu size={20} />
-            </button>
+      <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <h2 className="font-semibold">Project Resources</h2>
+        <button
+          onClick={onClose}
+          className={`p-1 rounded hover:${isDark ? 'bg-gray-700' : 'bg-gray-100'} transition-colors`}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-            {/* Artifact dropdown menu */}
-            {showArtifactMenu && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowArtifactMenu(false)}
-                />
-                <div className={`
-                  absolute left-0 top-10 w-64 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto
-                  ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}
-                `}>
-                  <div className="p-2">
-                    <div className={`px-3 py-2 text-xs font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                      Recent Artifacts
-                    </div>
-                    {uniqueArtifacts.map((artifact) => (
-                      <button
-                        key={artifact.id}
-                        onClick={() => {
-                          setSelectedArtifact(artifact);
-                          fetchVersions(artifact.id);
-                          setShowArtifactMenu(false);
-                        }}
-                        className={`
-                          w-full flex items-center gap-2 px-3 py-2 rounded text-sm
-                          transition-colors text-left
-                          ${selectedArtifact?.id === artifact.id
-                            ? isDark 
-                              ? 'bg-purple-600/20 text-purple-400' 
-                              : 'bg-purple-100 text-purple-700'
-                            : isDark
-                              ? 'hover:bg-gray-700 text-gray-300'
-                              : 'hover:bg-gray-50 text-gray-700'
-                          }
-                        `}
-                      >
-                        {getIcon(artifact.artifact_type)}
-                        <span className="flex-1 truncate">{artifact.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+      {/* Tabs */}
+      <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <button
+          onClick={() => setActiveTab('artifacts')}
+          className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'artifacts'
+              ? isDark
+                ? 'text-blue-400 border-b-2 border-blue-400'
+                : 'text-blue-600 border-b-2 border-blue-600'
+              : isDark
+              ? 'text-gray-400 hover:text-gray-300'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <FileText className="w-4 h-4" />
+            Artifacts
           </div>
-
-          {selectedArtifact && (
-            <>
-              {getIcon(selectedArtifact.artifact_type)}
-              <h4 className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                {selectedArtifact.name}
-              </h4>
-              <span className={`text-xs px-2 py-0.5 rounded ${
-                isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-600'
-              }`}>
-                {getLanguageLabel(selectedArtifact)}
-              </span>
-            </>
-          )}
-        </div>
-
-        {/* Version selector */}
-        {selectedArtifact && versions.length > 0 && (
-          <div className="relative">
-            <button
-              onClick={() => setShowVersionMenu(!showVersionMenu)}
-              className={`
-                flex items-center gap-2 px-3 py-1.5 rounded-md text-sm
-                ${isDark 
-                  ? 'hover:bg-gray-800 text-gray-300' 
-                  : 'hover:bg-gray-100 text-gray-700'
-                }
-              `}
-            >
-              <span className="font-medium">
-                {currentVersion === versions[0]?.version ? 'Latest' : `Version ${currentVersion}`}
-              </span>
-              <ChevronDown size={14} />
-            </button>
-
-            {/* Version dropdown */}
-            {showVersionMenu && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowVersionMenu(false)}
-                />
-                <div className={`
-                  absolute right-0 top-10 w-48 rounded-lg shadow-lg z-50
-                  ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}
-                `}>
-                  <div className="p-2">
-                    {versions.map((version, index) => (
-                      <button
-                        key={version.version}
-                        onClick={() => loadVersion(version.version)}
-                        className={`
-                          w-full flex items-center justify-between px-3 py-2 rounded text-sm
-                          transition-colors
-                          ${currentVersion === version.version
-                            ? isDark 
-                              ? 'bg-purple-600/20 text-purple-400' 
-                              : 'bg-purple-100 text-purple-700'
-                            : isDark
-                              ? 'hover:bg-gray-700 text-gray-300'
-                              : 'hover:bg-gray-50 text-gray-700'
-                          }
-                        `}
-                      >
-                        <span>Version {version.version}</span>
-                        {index === 0 && (
-                          <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                            Latest
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+        </button>
+        <button
+          onClick={() => setActiveTab('files')}
+          className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'files'
+              ? isDark
+                ? 'text-blue-400 border-b-2 border-blue-400'
+                : 'text-blue-600 border-b-2 border-blue-600'
+              : isDark
+              ? 'text-gray-400 hover:text-gray-300'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <GitBranch className="w-4 h-4" />
+            Git Files
           </div>
-        )}
-        
-        <div className="flex items-center gap-2">
-          {/* Copy button */}
-          <button
-            onClick={copyToClipboard}
-            className={`
-              px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-              flex items-center gap-2
-              ${isDark 
-                ? 'hover:bg-gray-800 text-gray-400' 
-                : 'hover:bg-gray-100 text-gray-600'
-              }
-            `}
-            title="Copy to clipboard"
-          >
-            {copied ? (
-              <>
-                <Check size={16} className="text-green-500" />
-                <span>Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy size={16} />
-                <span>Copy</span>
-              </>
-            )}
-          </button>
-
-          {/* Save button */}
-          <button
-            onClick={saveToProject}
-            disabled={saving}
-            className={`
-              px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-              flex items-center gap-2
-              ${saved
-                ? 'bg-green-600 text-white'
-                : isDark 
-                  ? 'bg-purple-600 hover:bg-purple-700 text-white' 
-                  : 'bg-purple-600 hover:bg-purple-700 text-white'
-              }
-              ${saving ? 'opacity-50 cursor-not-allowed' : ''}
-            `}
-            title="Save to project"
-          >
-            {saved ? (
-              <>
-                <Check size={16} />
-                <span>Saved!</span>
-              </>
-            ) : (
-              <>
-                <Save size={16} />
-                <span>Save</span>
-              </>
-            )}
-          </button>
-          
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className={`
-              p-1.5 rounded-md transition-colors
-              ${isDark 
-                ? 'hover:bg-gray-800 text-gray-400' 
-                : 'hover:bg-gray-100 text-gray-600'
-              }
-            `}
-            title="Close"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        </button>
       </div>
 
       {/* Content */}
-      {selectedArtifact && (
-        <div className="flex-1 overflow-auto p-6">
-          <pre className={`
-            text-sm font-mono whitespace-pre-wrap
-            ${isDark ? 'text-gray-300' : 'text-gray-700'}
-          `}>
-            {selectedArtifact.content}
-          </pre>
-        </div>
-      )}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {activeTab === 'artifacts' ? (
+          <>
+            {/* Artifact List */}
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="p-4 text-center text-gray-500">Loading artifacts...</div>
+              ) : artifacts.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  No artifacts yet. They'll appear here as we work together.
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {artifacts.map((artifact) => (
+                    <button
+                      key={artifact.id}
+                      onClick={() => setSelectedArtifact(artifact)}
+                      className={`w-full p-3 text-left hover:${isDark ? 'bg-gray-700' : 'bg-gray-50'} transition-colors ${
+                        selectedArtifact?.id === artifact.id ? (isDark ? 'bg-gray-700' : 'bg-gray-50') : ''
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {getArtifactIcon(artifact.artifact_type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm truncate">{artifact.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            {artifact.language && (
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {getLanguageLabel(artifact.language)}
+                              </span>
+                            )}
+                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} flex items-center gap-1`}>
+                              <Clock className="w-3 h-3" />
+                              {formatTimestamp(artifact.updated_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Artifact Preview */}
+            {selectedArtifact && (
+              <div className={`border-t ${isDark ? 'border-gray-700' : 'border-gray-200'} flex flex-col h-1/2`}>
+                <div className={`p-3 flex items-center justify-between ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                  <h3 className="font-medium text-sm">{selectedArtifact.name}</h3>
+                  <button
+                    onClick={() => setSelectedArtifact(null)}
+                    className={`p-1 rounded hover:${isDark ? 'bg-gray-600' : 'bg-gray-200'} transition-colors`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className={`flex-1 overflow-y-auto p-3 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+                  <pre className={`text-xs font-mono whitespace-pre-wrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    {selectedArtifact.content}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex-1 overflow-hidden">
+            <ArtifactFileManager 
+              projectId={projectId}
+              isDark={isDark}
+              onFileUpdate={(filePath, content) => {
+                console.log(`File ${filePath} updated with new content`);
+                // You could create an artifact from the edited file here if needed
+              }}
+              onEditingChange={(editing) => setIsEditingFile(editing)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 };

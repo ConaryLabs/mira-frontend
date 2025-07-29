@@ -307,7 +307,7 @@ export const ChatContainer: React.FC = () => {
   console.log("Rendering ProjectSidebar with isOpen:", isSidebarOpen, "projects:", projects);
 
   return (
-    <div className="relative flex h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className={`relative flex h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 ${isDark ? 'dark-scrollbar' : 'light-scrollbar'}`}>
       {/* Sidebar overlays (fixed), rest is chat area. */}
       <ProjectSidebar
         projects={projects}

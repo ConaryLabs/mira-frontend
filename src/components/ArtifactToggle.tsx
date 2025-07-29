@@ -1,13 +1,12 @@
 // src/components/ArtifactToggle.tsx
-// NEW FILE
-
 import React from 'react';
-import { FileCode, ChevronUp } from 'lucide-react';
+import { FileText, GitBranch } from 'lucide-react';
 
 interface ArtifactToggleProps {
   isOpen: boolean;
   onClick: () => void;
   artifactCount: number;
+  hasGitRepos?: boolean;
   isDark: boolean;
 }
 
@@ -15,29 +14,41 @@ const ArtifactToggle: React.FC<ArtifactToggleProps> = ({
   isOpen,
   onClick,
   artifactCount,
-  isDark
+  hasGitRepos = true, // Default to true if project is selected
+  isDark,
 }) => {
-  if (artifactCount === 0) return null;
-
   return (
     <button
       onClick={onClick}
       className={`
-        flex items-center gap-2 px-3 py-1.5 rounded-full text-sm
-        transition-all duration-200
+        relative p-3 rounded-full shadow-lg transition-all duration-200 transform
+        ${isOpen ? 'scale-95' : 'hover:scale-105'}
         ${isDark 
-          ? 'bg-gray-800/80 hover:bg-gray-700/80 text-gray-300' 
-          : 'bg-white/80 hover:bg-gray-100/80 text-gray-700 shadow-sm'
+          ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' 
+          : 'bg-white hover:bg-gray-50 text-gray-700'
         }
-        backdrop-blur-sm
+        border-2 ${isDark ? 'border-gray-700' : 'border-gray-200'}
       `}
+      title={isOpen ? 'Close resources' : 'Open project resources'}
     >
-      <FileCode size={16} />
-      <span>{artifactCount} artifact{artifactCount !== 1 ? 's' : ''}</span>
-      <ChevronUp 
-        size={14} 
-        className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
-      />
+      {hasGitRepos ? (
+        <GitBranch className="w-6 h-6" />
+      ) : (
+        <FileText className="w-6 h-6" />
+      )}
+      
+      {(artifactCount > 0 || hasGitRepos) && (
+        <span className={`
+          absolute -top-1 -right-1 min-w-[20px] h-5 px-1 
+          flex items-center justify-center rounded-full text-xs font-bold
+          ${isDark 
+            ? 'bg-blue-600 text-white' 
+            : 'bg-blue-500 text-white'
+          }
+        `}>
+          {artifactCount > 0 ? artifactCount : <GitBranch className="w-3 h-3" />}
+        </span>
+      )}
     </button>
   );
 };
