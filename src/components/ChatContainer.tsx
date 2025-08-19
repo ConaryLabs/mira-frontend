@@ -1,10 +1,10 @@
 // src/components/ChatContainer.tsx
-// Streaming chat UI with no mood/persona handling.
-// - Streams chunks -> one growing assistant bubble
-// - Finalizes on `complete`/`done`
-// - Loads history on connect
-// - Auto-scrolls
-// - Keeps tool results/citations support
+// FIXED VERSION - Corrected message display and CSS layout
+// Key changes:
+// 1. Fixed CSS layout from flex-col-reverse to regular flex-col
+// 2. Added comprehensive debug logging
+// 3. Improved scrollToBottom with timeout
+// 4. Added test message button for debugging
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -97,8 +97,12 @@ export const ChatContainer: React.FC = () => {
 
   const { isDark, toggleTheme } = useTheme();
 
+  // FIXED: Improved scrollToBottom with timeout to ensure DOM updates
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use timeout to ensure DOM has updated
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 50);
   };
 
   useEffect(() => {
@@ -122,31 +126,42 @@ export const ChatContainer: React.FC = () => {
     setShowArtifacts(true);
   };
 
-  // WS handler (no mood/persona UI)
+  // FIXED: Added comprehensive debug logging to WebSocket handler
   const handleServerMessage = useCallback((msg: WsServerMessage | WsToolResult | WsCitation) => {
+    console.log('[ChatContainer] Received WS message:', msg.type, msg);
+    
     switch (msg.type) {
       case 'chunk': {
-        if (msg.content && msg.content.trim()) setIsThinking(false);
+        console.log('[ChatContainer] Processing chunk:', (msg as any).content);
+        if ((msg as any).content && (msg as any).content.trim()) {
+          setIsThinking(false);
+        }
+        
         setMessages(prev => {
           const firstMsg = prev[0];
+          console.log('[ChatContainer] Current first message:', firstMsg);
+          
           if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
-            // append to existing streaming message
-            return [
-              { ...firstMsg, content: firstMsg.content + (msg.content || '') },
-              ...prev.slice(1),
-            ];
+            // Append to existing streaming message
+            const updated = { 
+              ...firstMsg, 
+              content: firstMsg.content + ((msg as any).content || '') 
+            };
+            console.log('[ChatContainer] Appending to stream, new content length:', updated.content.length);
+            return [updated, ...prev.slice(1)];
           } else {
-            // start new streaming message
+            // Start new streaming message
             const newMessage: Message = {
               id: Date.now().toString(),
               role: 'mira',
-              content: msg.content || '',
+              content: (msg as any).content || '',
               timestamp: new Date(),
               isStreaming: true,
             };
             currentStreamId.current = newMessage.id;
             pendingToolResults.current = [];
             pendingCitations.current = [];
+            console.log('[ChatContainer] Starting new stream with ID:', newMessage.id);
             return [newMessage, ...prev];
           }
         });
@@ -155,9 +170,11 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'complete': {
+        console.log('[ChatContainer] Complete message received');
         setMessages(prev => {
           const updated = [...prev];
           if (updated.length > 0 && updated[0].isStreaming) {
+            console.log('[ChatContainer] Finalizing streaming message');
             updated[0] = {
               ...updated[0],
               isStreaming: false,
@@ -175,6 +192,7 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'status': {
+        console.log('[ChatContainer] Status message received');
         const statusText = (msg as any).status_message || (msg as any).message || '';
         setStatusMessage(statusText);
         if (statusText.includes('tool:') || statusText.includes('Executed')) setToolsActive(true);
@@ -185,6 +203,7 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'tool_result': {
+        console.log('[ChatContainer] Tool result received');
         const tr = msg as WsToolResult;
         if (tr.tool_type && tr.data) {
           const toolResult: ToolResult = { type: tr.tool_type as any, data: tr.data };
@@ -194,6 +213,7 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'citation': {
+        console.log('[ChatContainer] Citation received');
         const cit = msg as WsCitation;
         if (cit.file_id && cit.filename) {
           const citation: Citation = {
@@ -205,11 +225,12 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'aside': {
-        // Ignored in UI (we can surface later if we want)
+        console.log('[ChatContainer] Aside received (ignored in UI)');
         break;
       }
 
       case 'done': {
+        console.log('[ChatContainer] Done message received');
         setIsThinking(false);
         setToolsActive(false);
         setMessages(prev => {
@@ -231,6 +252,7 @@ export const ChatContainer: React.FC = () => {
       }
 
       case 'error': {
+        console.log('[ChatContainer] Error message received');
         setIsThinking(false);
         setToolsActive(false);
         setConnectionError((msg as any).message);
@@ -346,9 +368,29 @@ export const ChatContainer: React.FC = () => {
           </div>
         )}
 
-        {/* Header */}
+        {/* Header with test button */}
         <header className="relative z-10 flex items-center justify-between p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
           <h1 className="text-2xl font-light">Mira</h1>
+          
+          {/* Debug test button */}
+          <button
+            onClick={() => {
+              const testMessage: Message = {
+                id: `test-${Date.now()}`,
+                role: 'mira',
+                content: 'This is a test message to verify display is working',
+                timestamp: new Date(),
+                isStreaming: false,
+              };
+              setMessages(prev => [testMessage, ...prev]);
+              scrollToBottom();
+              console.log('[Test] Added test message to state');
+            }}
+            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+          >
+            Test Message
+          </button>
+          
           {toolsActive && (
             <div className="flex items-center gap-2 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 rounded-full">
               <Cpu className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
@@ -364,10 +406,10 @@ export const ChatContainer: React.FC = () => {
           </button>
         </header>
 
-        {/* Messages */}
+        {/* FIXED: Messages container with corrected CSS */}
         <div
           ref={messagesContainerRef}
-          className="relative flex-1 overflow-y-auto p-4 space-y-4"
+          className="relative flex-1 overflow-y-auto p-4"
           onScroll={handleScroll}
         >
           {isLoadingHistory ? (
@@ -381,13 +423,10 @@ export const ChatContainer: React.FC = () => {
                   <div className="text-sm text-gray-500">Loading more...</div>
                 </div>
               )}
-              <div className="flex flex-col-reverse space-y-4 space-y-reverse">
-                {isThinking && (
-                  <div className="rounded-xl px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-800/60 w-max">
-                    thinking…
-                  </div>
-                )}
-                {messages.map((message) => (
+              {/* FIXED: Regular flex-col with gap for proper message ordering */}
+              <div className="flex flex-col gap-4">
+                {/* Show messages in reverse chronological order (newest first) */}
+                {messages.slice().reverse().map((message) => (
                   <MessageBubble
                     key={message.id}
                     message={message}
@@ -395,6 +434,12 @@ export const ChatContainer: React.FC = () => {
                     onArtifactClick={handleArtifactClick}
                   />
                 ))}
+                {/* Thinking indicator at the bottom */}
+                {isThinking && (
+                  <div className="rounded-xl px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-800/60 w-max">
+                    thinking…
+                  </div>
+                )}
               </div>
             </>
           )}

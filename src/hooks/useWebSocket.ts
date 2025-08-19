@@ -1,3 +1,8 @@
+// src/hooks/useWebSocket.ts
+// CRITICAL FIX - Stops the connection/disconnection loop
+// Problem: useEffect was running multiple times causing repeated connections
+// Solution: Properly manage connection lifecycle with stable dependencies
+
 import { useRef, useCallback, useEffect, useState } from 'react';
 import type { WsServerMessage, WsClientMessage } from '../types/websocket';
 
@@ -35,6 +40,9 @@ export function useWebSocket({
   const shouldReconnect = useRef(true);
   const isConnecting = useRef(false);
   const messageQueue = useRef<WsClientMessage[]>([]);
+  
+  // CRITICAL: Track if we've initialized to prevent multiple connections
+  const hasInitialized = useRef(false);
 
   const getReconnectDelay = useCallback(() => {
     const delay = Math.min(
@@ -86,29 +94,37 @@ export function useWebSocket({
     shouldReconnect.current = false;
     isConnecting.current = false;
     clearTimeouts();
+    
     if (ws.current) {
+      // Remove all event handlers before closing
       ws.current.onopen = null;
       ws.current.onclose = null;
       ws.current.onerror = null;
       ws.current.onmessage = null;
+      
       if (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING) {
         ws.current.close(1000, 'User disconnect');
       }
       ws.current = null;
     }
+    
     setIsConnected(false);
     messageQueue.current = [];
   }, [clearTimeouts]);
 
   const connect = useCallback(() => {
+    // Prevent multiple simultaneous connection attempts
     if (isConnecting.current) {
       console.log('[WS] Already connecting, skipping...');
       return;
     }
+    
     if (!shouldReconnect.current) {
       console.log('[WS] Should not reconnect, skipping...');
       return;
     }
+    
+    // Check if already connected
     if (ws.current && (ws.current.readyState === WebSocket.CONNECTING || ws.current.readyState === WebSocket.OPEN)) {
       console.log('[WS] Already connected or connecting');
       return;
@@ -120,19 +136,22 @@ export function useWebSocket({
     try {
       console.log(`[WS] Attempting connection to ${url}`);
       const newWs = new WebSocket(url);
+      
+      // Store reference immediately to prevent duplicate connections
+      ws.current = newWs;
 
       connectTimeout.current = setTimeout(() => {
         if (newWs.readyState === WebSocket.CONNECTING) {
           console.log('[WS] Connection timeout, closing...');
           newWs.close();
           isConnecting.current = false;
+          ws.current = null;
         }
       }, connectionTimeout);
 
       newWs.onopen = () => {
         console.log('[WS] Connected successfully');
         clearTimeout(connectTimeout.current!);
-        ws.current = newWs;
         setIsConnected(true);
         isConnecting.current = false;
         reconnectAttempts.current = 0;
@@ -144,12 +163,27 @@ export function useWebSocket({
       newWs.onmessage = (event) => {
         try {
           const message: WsServerMessage = JSON.parse(event.data);
-          // log *every* message type to help debug
-          const t = (message as any)?.type ?? 'unknown';
-          console.log('[WS] ←', t, message);
+          
+          // Enhanced logging
+          const messageInfo = {
+            type: message.type,
+            hasContent: 'content' in message ? !!(message as any).content : false,
+            contentLength: 'content' in message ? (message as any).content?.length : 0,
+            fullMessage: message
+          };
+          
+          console.log('[WS] Message received:', messageInfo);
+          
+          // Log chunk content preview
+          if (message.type === 'chunk') {
+            const chunk = message as any;
+            console.log(`[WS] Chunk content preview: "${chunk.content?.substring(0, 50)}..."`);
+          }
+          
           onMessage(message);
         } catch (error) {
-          console.error('[WS] Failed to parse message:', error, event.data);
+          console.error('[WS] Failed to parse message:', error);
+          console.error('[WS] Raw data:', event.data);
         }
       };
 
@@ -168,6 +202,8 @@ export function useWebSocket({
         isConnecting.current = false;
         clearTimeouts();
         onDisconnect?.();
+        
+        // Only reconnect on abnormal closure
         if (shouldReconnect.current && event.code !== 1000 && event.code !== 1001) {
           const delay = getReconnectDelay();
           console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1})`);
@@ -180,8 +216,10 @@ export function useWebSocket({
 
     } catch (error) {
       console.error('[WS] Failed to create WebSocket:', error);
+      ws.current = null;
       setIsConnected(false);
       isConnecting.current = false;
+      
       if (shouldReconnect.current) {
         const delay = getReconnectDelay();
         reconnectTimeout.current = setTimeout(() => {
@@ -205,14 +243,24 @@ export function useWebSocket({
     }
   }, [isConnected, connect]);
 
+  // CRITICAL FIX: Only connect once on mount, not on every render
   useEffect(() => {
-    shouldReconnect.current = true;
-    connect();
+    // Only initialize once
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      shouldReconnect.current = true;
+      connect();
+    }
+    
+    // Cleanup on unmount only
     return () => {
-      shouldReconnect.current = false;
-      disconnect();
+      if (hasInitialized.current) {
+        hasInitialized.current = false;
+        shouldReconnect.current = false;
+        disconnect();
+      }
     };
-  }, [url]);
+  }, []); // CRITICAL: Empty dependency array - only run once!
 
   return { 
     isConnected, 
@@ -221,7 +269,9 @@ export function useWebSocket({
     reconnect: () => {
       shouldReconnect.current = true;
       reconnectAttempts.current = 0;
-      connect();
+      if (ws.current?.readyState !== WebSocket.OPEN && !isConnecting.current) {
+        connect();
+      }
     }
   };
 }
