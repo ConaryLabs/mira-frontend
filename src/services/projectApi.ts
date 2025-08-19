@@ -31,8 +31,9 @@ export const projectApi = {
   },
 
   // Get a single project
+  // FIXED: Backend uses singular /api/project/:id for getting a single project
   async getProject(projectId: string): Promise<Project> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}`);
+    const response = await fetch(`${API_BASE_URL}/project/${projectId}`);
     if (!response.ok) {
       throw new Error('Failed to fetch project');
     }
@@ -80,8 +81,9 @@ export const projectApi = {
   },
 
   // Get project details with attached repos
+  // FIXED: Backend uses singular /api/project/:id, not /api/projects/:id/details
   async getProjectDetails(projectId: string) {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/details`);
+    const response = await fetch(`${API_BASE_URL}/project/${projectId}`);
     if (!response.ok) {
       throw new Error('Failed to fetch project details');
     }

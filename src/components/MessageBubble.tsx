@@ -1,186 +1,174 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
+import { User, Bot } from 'lucide-react';
 import type { Message } from '../types/messages';
-import { ArtifactReference } from './ArtifactReference';
-import { CodeBlock } from './CodeBlock';
+import { ToolResultsContainer, ToolResult, Citation } from './ToolResults/ToolResultsContainer';
 import clsx from 'clsx';
 
 interface MessageBubbleProps {
   message: Message;
-  isDark: boolean;
+  getMoodColor: (mood: string) => string;
+  isDark?: boolean;
   onArtifactClick?: (artifactId: string) => void;
 }
 
-type ContentPart = 
-  | { type: 'text'; content: string }
-  | { type: 'code'; code: string; language?: string }
-  | { type: 'artifact'; id: string; name: string; artifactType: string; language?: string };
-
-// Helper to parse message content for artifacts and code blocks
-const parseMessageContent = (content: string): ContentPart[] => {
-  const parts: ContentPart[] = [];
-  let remaining = content;
-  
-  // Pattern to match artifact references: {{artifact:id:name:type:language}}
-  const artifactPattern = /\{\{artifact:([^:]+):([^:]+):([^:]+):?([^}]*)\}\}/;
-  
-  // Pattern to match code blocks with optional language
-  const codeBlockPattern = /```(\w+)?\n([\s\S]*?)```/;
-  
-  // Pattern to match inline code
-  const inlineCodePattern = /`([^`]+)`/;
-  
-  while (remaining) {
-    // Find the next special element
-    const artifactMatch = remaining.match(artifactPattern);
-    const codeBlockMatch = remaining.match(codeBlockPattern);
-    const inlineCodeMatch = remaining.match(inlineCodePattern);
-    
-    // Determine which comes first
-    const artifactIndex = artifactMatch ? remaining.indexOf(artifactMatch[0]) : Infinity;
-    const codeBlockIndex = codeBlockMatch ? remaining.indexOf(codeBlockMatch[0]) : Infinity;
-    const inlineCodeIndex = inlineCodeMatch ? remaining.indexOf(inlineCodeMatch[0]) : Infinity;
-    
-    const nextIndex = Math.min(artifactIndex, codeBlockIndex, inlineCodeIndex);
-    
-    if (nextIndex === Infinity) {
-      // No more special elements
-      if (remaining) {
-        parts.push({ type: 'text', content: remaining });
-      }
-      break;
-    }
-    
-    // Add text before the special element
-    if (nextIndex > 0) {
-      parts.push({ type: 'text', content: remaining.slice(0, nextIndex) });
-    }
-    
-    // Process the special element
-    if (nextIndex === artifactIndex && artifactMatch) {
-      parts.push({
-        type: 'artifact',
-        id: artifactMatch[1],
-        name: artifactMatch[2],
-        artifactType: artifactMatch[3],
-        language: artifactMatch[4] || undefined
-      });
-      remaining = remaining.slice(artifactIndex + artifactMatch[0].length);
-    } else if (nextIndex === codeBlockIndex && codeBlockMatch) {
-      parts.push({
-        type: 'code',
-        code: codeBlockMatch[2].trim(),
-        language: codeBlockMatch[1] || undefined
-      });
-      remaining = remaining.slice(codeBlockIndex + codeBlockMatch[0].length);
-    } else if (nextIndex === inlineCodeIndex && inlineCodeMatch) {
-      // For inline code, we'll just wrap it in a styled span
-      parts.push({
-        type: 'text',
-        content: remaining.slice(0, inlineCodeIndex)
-      });
-      parts.push({
-        type: 'text',
-        content: `\`${inlineCodeMatch[1]}\``
-      });
-      remaining = remaining.slice(inlineCodeIndex + inlineCodeMatch[0].length);
-    }
-  }
-  
-  return parts.length > 0 ? parts : [{ type: 'text', content }];
-};
-
-// Helper to render inline code
-const renderTextWithInlineCode = (text: string, isDark: boolean) => {
-  const parts = text.split(/(`[^`]+`)/g);
-  
-  return parts.map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      const code = part.slice(1, -1);
-      return (
-        <code
-          key={index}
-          className={`
-            px-1.5 py-0.5 rounded text-sm font-mono
-            ${isDark 
-              ? 'bg-gray-700 text-purple-300' 
-              : 'bg-gray-200 text-purple-700'
-            }
-          `}
-        >
-          {code}
-        </code>
-      );
-    }
-    return <span key={index}>{part}</span>;
-  });
-};
-
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
   message, 
-  isDark,
-  onArtifactClick 
+  getMoodColor,
+  isDark = false,
+  onArtifactClick
 }) => {
   const isUser = message.role === 'user';
-  const contentParts = parseMessageContent(message.content);
   
+  // Parse tool results and citations if they exist
+  const toolResults: ToolResult[] = message.toolResults || [];
+  const citations: Citation[] = message.citations || [];
+
+  // Function to render message content with inline citations
+  const renderContentWithCitations = (content: string) => {
+    if (!citations || citations.length === 0) {
+      return <div className="whitespace-pre-wrap">{content}</div>;
+    }
+
+    // Simple citation replacement - look for [1], [2], etc.
+    let processedContent = content;
+    const citationElements: JSX.Element[] = [];
+    
+    citations.forEach((citation, idx) => {
+      const citationNum = idx + 1;
+      const citationPattern = new RegExp(`\\[${citationNum}\\]`, 'g');
+      
+      if (processedContent.match(citationPattern)) {
+        processedContent = processedContent.replace(citationPattern, `§CITE${citationNum}§`);
+        citationElements[citationNum] = (
+          <sup className="text-blue-600 dark:text-blue-400 hover:underline cursor-help ml-0.5" title={citation.filename}>
+            [{citationNum}]
+          </sup>
+        );
+      }
+    });
+
+    // Split content and insert citation elements
+    const parts = processedContent.split(/§CITE(\d+)§/);
+    const elements: JSX.Element[] = [];
+    
+    parts.forEach((part, idx) => {
+      if (idx % 2 === 0) {
+        // Text content
+        elements.push(<span key={`text-${idx}`}>{part}</span>);
+      } else {
+        // Citation number
+        const citationNum = parseInt(part);
+        elements.push(
+          <span key={`cite-${idx}`}>
+            {citationElements[citationNum]}
+          </span>
+        );
+      }
+    });
+
+    return <div className="whitespace-pre-wrap">{elements}</div>;
+  };
+
   return (
-    <div
-      className={clsx(
-        'flex animate-fade-in',
-        isUser ? 'justify-end' : 'justify-start'
-      )}
-    >
-      <div
-        className={clsx(
-          'max-w-[70%] px-4 py-2 rounded-2xl relative',
-          isUser
-            ? isDark 
-              ? 'bg-purple-600 text-white' 
-              : 'bg-purple-500 text-white'
-            : isDark
-              ? 'bg-gray-800 text-gray-100'
-              : 'bg-white text-gray-900 shadow-sm'
+    <div className={clsx(
+      'flex gap-3 animate-fade-in',
+      isUser ? 'flex-row-reverse' : 'flex-row'
+    )}>
+      {/* Avatar */}
+      <div className={clsx(
+        'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
+        isUser 
+          ? 'bg-gray-600 dark:bg-gray-400' 
+          : `bg-gradient-to-br ${getMoodColor(message.mood || 'present')}`
+      )}>
+        {isUser ? (
+          <User className="w-5 h-5 text-white" />
+        ) : (
+          <Bot className="w-5 h-5 text-white" />
         )}
-      >
-        <div className="whitespace-pre-wrap">
-          {contentParts.map((part, index) => {
-            switch (part.type) {
-              case 'text':
-                return (
-                  <span key={index}>
-                    {renderTextWithInlineCode(part.content, isDark)}
-                  </span>
-                );
-                
-              case 'code':
-                return (
-                  <CodeBlock
-                    key={index}
-                    code={part.code}
-                    language={part.language}
-                    isDark={isDark}
-                  />
-                );
-                
-              case 'artifact':
-                return onArtifactClick ? (
-                  <ArtifactReference
-                    key={index}
-                    artifactId={part.id}
-                    name={part.name}
-                    type={part.artifactType as 'code' | 'document' | 'data'}
-                    language={part.language}
-                    onClick={onArtifactClick}
-                    isDark={isDark}
-                  />
-                ) : null;
-                
-              default:
-                return null;
-            }
+      </div>
+
+      {/* Message Content */}
+      <div className={clsx(
+        'flex-1 max-w-[70%]',
+        isUser ? 'items-end' : 'items-start'
+      )}>
+        <div className={clsx(
+          'rounded-2xl px-4 py-3 shadow-sm',
+          isUser 
+            ? 'bg-gray-600 dark:bg-gray-400 text-white' 
+            : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100',
+          !isUser && message.mood && `border-l-4 ${getMoodColor(message.mood)}`
+        )}>
+          {/* Main message content */}
+          <div className={clsx(
+            'text-sm leading-relaxed',
+            message.isStreaming && 'animate-pulse'
+          )}>
+            {renderContentWithCitations(message.content)}
+          </div>
+
+          {/* Mood indicator for Mira */}
+          {!isUser && message.mood && !message.isStreaming && (
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 italic">
+              Mood: {message.mood}
+            </div>
+          )}
+
+          {/* Tags if present */}
+          {message.tags && message.tags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {message.tags.map((tag, idx) => (
+                <span 
+                  key={idx}
+                  className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-600 dark:text-gray-300"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Salience indicator */}
+          {message.salience && message.salience > 5 && (
+            <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              ⚡ High importance
+            </div>
+          )}
+        </div>
+
+        {/* Tool Results - displayed below the message */}
+        {!isUser && (toolResults.length > 0 || citations.length > 0) && (
+          <div className="mt-2">
+            <ToolResultsContainer
+              toolResults={toolResults}
+              citations={citations}
+              isDark={isDark}
+            />
+          </div>
+        )}
+
+        {/* Timestamp */}
+        <div className={clsx(
+          'text-xs text-gray-500 dark:text-gray-400 mt-1',
+          isUser ? 'text-right' : 'text-left'
+        )}>
+          {new Date(message.timestamp).toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit' 
           })}
         </div>
+
+        {/* Artifact reference if present */}
+        {message.artifactId && onArtifactClick && (
+          <button
+            onClick={() => onArtifactClick(message.artifactId!)}
+            className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            View Artifact
+          </button>
+        )}
       </div>
     </div>
   );

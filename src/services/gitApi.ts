@@ -77,8 +77,9 @@ export const gitApi = {
   },
 
   // Get project details including attached repos
+  // FIXED: Backend uses singular /api/project/:id, not /api/projects/:id/details
   async getProjectDetails(projectId: string) {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/details`);
+    const response = await fetch(`${API_BASE_URL}/project/${projectId}`);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch project details: ${response.statusText}`);

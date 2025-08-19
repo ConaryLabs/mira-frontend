@@ -39,9 +39,9 @@ export const fileApi = {
     data: UpdateFileDto
   ): Promise<FileContent> {
     const response = await fetch(
-      `${API_BASE_URL}/projects/${projectId}/git/${attachmentId}/files/${encodeURIComponent(filePath)}`,
+      `${API_BASE_URL}/projects/${projectId}/git/files/${attachmentId}/content/${encodeURIComponent(filePath)}`,
       {
-        method: 'PUT',
+        method: 'POST',  // CHANGED from 'PUT' - backend expects POST
         headers: {
           'Content-Type': 'application/json',
         },
@@ -69,49 +69,6 @@ export const fileApi = {
     return response.json();
   },
 
-  // Create a new file in the repo
-  async createFile(
-    projectId: string,
-    attachmentId: string,
-    filePath: string,
-    content: string
-  ): Promise<FileContent> {
-    const response = await fetch(
-      `${API_BASE_URL}/projects/${projectId}/git/${attachmentId}/files`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          path: filePath,
-          content: content,
-        }),
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Failed to create file: ${response.statusText}`);
-    }
-    
-    return response.json();
-  },
-
-  // Delete a file from the repo
-  async deleteFile(
-    projectId: string,
-    attachmentId: string,
-    filePath: string
-  ): Promise<void> {
-    const response = await fetch(
-      `${API_BASE_URL}/projects/${projectId}/git/${attachmentId}/files/${encodeURIComponent(filePath)}`,
-      {
-        method: 'DELETE',
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Failed to delete file: ${response.statusText}`);
-    }
-  },
+  // NOTE: createFile and deleteFile methods removed - backend doesn't support these operations
+  // The UI should be updated to not offer these options
 };
