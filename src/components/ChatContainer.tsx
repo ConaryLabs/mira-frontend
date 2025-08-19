@@ -1,4 +1,15 @@
-// src/components/ChatContainer.tsx
+// Updated ChatContainer.tsx with streaming fixes and history parsing
+
+// NOTE: This file was copied from the mira‑frontend repository and modified to
+// restore chat streaming, auto‑scrolling, and chat history loading.
+// Changes include:
+//  * Finalizing streaming messages on `done` events similar to `complete`.
+//  * Scrolling to the bottom of the chat whenever a chunk, complete, or done
+//    message arrives.
+//  * Parsing chat history from `data.messages` instead of `data.history` and
+//    using the `role` field to determine sender; timestamps are converted
+//    from seconds to JavaScript `Date` objects.
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useTheme } from '../hooks/useTheme';
@@ -150,17 +161,19 @@ export const ChatContainer: React.FC = () => {
   // Enhanced WebSocket message handler with tool support
   const handleServerMessage = useCallback((msg: WsServerMessage | WsToolResult | WsCitation) => {
     switch (msg.type) {
-      case 'chunk':
+      case 'chunk': {
         if (msg.content && msg.content.trim()) setIsThinking(false);
         if (msg.mood) setCurrentMood(msg.mood);
         setMessages(prev => {
           const firstMsg = prev[0];
           if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
+            // Append to existing streaming message
             return [
-              { ...firstMsg, content: firstMsg.content + msg.content, mood: msg.mood || firstMsg.mood },
-              ...prev.slice(1)
+              { ...firstMsg, content: firstMsg.content + (msg.content || ''), mood: msg.mood || firstMsg.mood },
+              ...prev.slice(1),
             ];
           } else {
+            // Start a new streaming message
             const newMessage: Message = {
               id: Date.now().toString(),
               role: 'mira',
@@ -176,92 +189,116 @@ export const ChatContainer: React.FC = () => {
             return [newMessage, ...prev];
           }
         });
+        // Always scroll to bottom after receiving a chunk
+        scrollToBottom();
         break;
-
-      case 'complete':
+      }
+      case 'complete': {
         // Finalize streaming message with metadata and attach tool results
+        const completeMsg: any = msg;
         setMessages(prev => {
           const updated = [...prev];
           if (updated.length > 0 && updated[0].isStreaming) {
             updated[0] = {
               ...updated[0],
               isStreaming: false,
-              mood: msg.mood || updated[0].mood,
-              tags: msg.tags,
-              salience: msg.salience,
+              mood: completeMsg.mood || updated[0].mood,
+              tags: completeMsg.tags,
+              salience: completeMsg.salience,
               toolResults: pendingToolResults.current.length > 0 ? [...pendingToolResults.current] : undefined,
               citations: pendingCitations.current.length > 0 ? [...pendingCitations.current] : undefined,
-            };
+            } as Message;
           }
           return updated;
         });
-        if (msg.mood) setCurrentMood(msg.mood);
+        if (completeMsg.mood) setCurrentMood(completeMsg.mood);
         setToolsActive(false);
         // Clear pending storage
         pendingToolResults.current = [];
         pendingCitations.current = [];
+        // Scroll to bottom when message completes
+        scrollToBottom();
         break;
-
-      case 'status':
+      }
+      case 'status': {
         // Show status updates in UI
-        const statusText = msg.status_message || msg.message || '';
+        const statusMsg: any = msg;
+        const statusText = statusMsg.status_message || statusMsg.message || '';
         setStatusMessage(statusText);
-        
         // Check if it's a tool execution status
         if (statusText.includes('tool:') || statusText.includes('Executed')) {
           setToolsActive(true);
         }
-        
         if (statusTimer) {
           clearTimeout(statusTimer);
         }
         const timer = setTimeout(() => setStatusMessage(''), 5000);
         setStatusTimer(timer);
         break;
-
-      // Handle tool results (Phase 4 addition)
-      case 'tool_result':
-        if (msg.tool_type && msg.data) {
+      }
+      case 'tool_result': {
+        const tr = msg as WsToolResult;
+        if (tr.tool_type && tr.data) {
           const toolResult: ToolResult = {
-            type: msg.tool_type as any,
-            data: msg.data,
+            type: tr.tool_type as any,
+            data: tr.data,
           };
           pendingToolResults.current.push(toolResult);
-          console.log('Received tool result:', msg.tool_type);
+          console.log('Received tool result:', tr.tool_type);
         }
         break;
-
-      // Handle citations (Phase 4 addition)
-      case 'citation':
-        if (msg.file_id && msg.filename) {
+      }
+      case 'citation': {
+        const cit = msg as WsCitation;
+        if (cit.file_id && cit.filename) {
           const citation: Citation = {
-            file_id: msg.file_id,
-            filename: msg.filename,
-            url: msg.url,
-            snippet: msg.snippet,
+            file_id: cit.file_id,
+            filename: cit.filename,
+            url: cit.url,
+            snippet: cit.snippet,
           };
           pendingCitations.current.push(citation);
-          console.log('Received citation:', msg.filename);
+          console.log('Received citation:', cit.filename);
         }
         break;
-
-      case 'aside':
-        console.log('Emotional aside:', msg.emotional_cue);
+      }
+      case 'aside': {
+        console.log('Emotional aside:', (msg as any).emotional_cue);
         break;
-
-      case 'done':
+      }
+      case 'done': {
+        // Finalize streaming message on done events
         setIsThinking(false);
         setToolsActive(false);
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated.length > 0 && updated[0].isStreaming) {
+            updated[0] = {
+              ...updated[0],
+              isStreaming: false,
+              // Keep existing mood and tags; they may have been set during streaming
+              toolResults: pendingToolResults.current.length > 0 ? [...pendingToolResults.current] : undefined,
+              citations: pendingCitations.current.length > 0 ? [...pendingCitations.current] : undefined,
+            } as Message;
+          }
+          return updated;
+        });
+        // Clear pending storage
+        pendingToolResults.current = [];
+        pendingCitations.current = [];
+        // Scroll to bottom after done
+        scrollToBottom();
         break;
-
-      case 'error':
+      }
+      case 'error': {
         setIsThinking(false);
         setToolsActive(false);
-        setConnectionError(msg.message);
+        setConnectionError((msg as any).message);
         setTimeout(() => setConnectionError(''), 5000);
         break;
+      }
     }
-  }, [currentMood, statusTimer]);
+  }, [statusTimer]);
 
   const loadChatHistory = useCallback(async (offset = 0) => {
     if (offset === 0) setIsLoadingHistory(true);
@@ -271,16 +308,26 @@ export const ChatContainer: React.FC = () => {
       const response = await fetch(`/api/chat/history?limit=30&offset=${offset}`);
       if (response.ok) {
         const data = await response.json();
-        const formattedMessages: Message[] = data.history.map((msg: any) => ({
-          id: msg.id || Date.now().toString(),
-          role: msg.sender === 'User' ? 'user' : 'mira',
-          content: msg.content,
-          mood: msg.tags?.[0] || 'present',
-          timestamp: new Date(msg.timestamp),
-          isStreaming: false,
-          toolResults: msg.tool_results,
-          citations: msg.citations,
-        }));
+        // Use data.messages (fall back to data.history for backward compatibility)
+        const rawMessages = data.messages || data.history || [];
+        const formattedMessages: Message[] = rawMessages.map((msg: any) => {
+          // Determine role: use msg.role if present, else fallback to sender
+          const role = msg.role === 'user' || msg.sender === 'User' ? 'user' : 'mira';
+          // Convert timestamp (seconds since epoch or ISO string) to Date
+          const ts = typeof msg.timestamp === 'number' ? new Date(msg.timestamp * 1000) : new Date(msg.timestamp);
+          return {
+            id: msg.id || Date.now().toString(),
+            role,
+            content: msg.content,
+            mood: msg.tags?.[0] || 'present',
+            timestamp: ts,
+            isStreaming: false,
+            toolResults: msg.tool_results,
+            citations: msg.citations,
+            tags: msg.tags,
+            salience: msg.salience,
+          } as Message;
+        });
         if (offset === 0) {
           setMessages(formattedMessages);
           const lastMiraMsg = formattedMessages.filter(m => m.role === 'mira').pop();
@@ -324,30 +371,27 @@ export const ChatContainer: React.FC = () => {
       loadChatHistory();
     },
     onDisconnect: () => {},
-    onError: (error) => {
+    onError: () => {
       setConnectionError('Connection error occurred');
       setTimeout(() => setConnectionError(''), 5000);
-    }
+    },
   });
 
   // Enhanced send message with file context metadata
   const handleSendMessage = useCallback((content: string) => {
     if (!content.trim()) return;
-    
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content,
       timestamp: new Date(),
+      isStreaming: false,
     };
-    
     setMessages(prev => [userMessage, ...prev]);
     setIsThinking(true);
     setConnectionError('');
-    
-    // Send enhanced message
     send({
-      type: 'chat',  // Use enhanced 'chat' type
+      type: 'chat',
       content,
       project_id: currentProjectId,
     });
@@ -373,24 +417,15 @@ export const ChatContainer: React.FC = () => {
         onProjectSelect={handleProjectSelect}
         currentProjectId={currentProjectId}
         isDark={isDark}
-        // Remove onFileOpen - ProjectSidebar doesn't have this prop
       />
-
-      <SidebarToggle
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        isDark={isDark}
-      />
-
+      <SidebarToggle onClick={() => setIsSidebarOpen(!isSidebarOpen)} isDark={isDark} />
       {/* Main chat area */}
       <div className="relative flex-1 flex flex-col">
         <MoodBackground mood={currentMood} />
-        
         {/* Status message bar */}
         {statusMessage && (
           <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 z-20 px-4 py-2 rounded-lg shadow-lg animate-slide-down ${
-            toolsActive 
-              ? 'bg-purple-500 text-white' 
-              : 'bg-blue-500 text-white'
+            toolsActive ? 'bg-purple-500 text-white' : 'bg-blue-500 text-white'
           }`}>
             <div className="flex items-center gap-2">
               {toolsActive && <Cpu className="w-4 h-4 animate-pulse" />}
@@ -398,11 +433,9 @@ export const ChatContainer: React.FC = () => {
             </div>
           </div>
         )}
-
         {/* Header */}
         <header className="relative z-10 flex items-center justify-between p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
           <h1 className="text-2xl font-light">Mira</h1>
-          
           {/* Tools active indicator */}
           {toolsActive && (
             <div className="flex items-center gap-2 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 rounded-full">
@@ -410,7 +443,6 @@ export const ChatContainer: React.FC = () => {
               <span className="text-sm text-purple-600 dark:text-purple-400">Tools Active</span>
             </div>
           )}
-          
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
@@ -419,7 +451,6 @@ export const ChatContainer: React.FC = () => {
             {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
         </header>
-
         {/* Messages */}
         <div
           ref={messagesContainerRef}
@@ -453,22 +484,15 @@ export const ChatContainer: React.FC = () => {
           )}
           <div ref={messagesEndRef} />
         </div>
-
         {/* Connection error */}
         {connectionError && (
           <div className="absolute top-16 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-red-500 text-white rounded-lg shadow-lg">
             {connectionError}
           </div>
         )}
-
         {/* Chat input */}
-        <ChatInput
-          onSend={handleSendMessage}  // Changed from onSendMessage
-          disabled={!isConnected}
-          isDark={isDark}
-        />
+        <ChatInput onSend={handleSendMessage} disabled={!isConnected} isDark={isDark} />
       </div>
-
       {/* Artifact viewer */}
       {currentProjectId && artifactCount > 0 && (
         <>
@@ -483,8 +507,7 @@ export const ChatContainer: React.FC = () => {
             isDark={isDark}
             onClose={() => setShowArtifacts(false)}
             selectedArtifactId={selectedArtifactId || undefined}
-            recentArtifacts={sessionArtifacts}  // Changed from sessionArtifacts
-            // Remove props that don't exist on ArtifactViewer
+            recentArtifacts={sessionArtifacts}
           />
         </>
       )}
