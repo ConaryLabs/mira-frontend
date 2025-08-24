@@ -1,7 +1,11 @@
 // src/hooks/useWebSocket.ts
-// CRITICAL FIX - Stops the connection/disconnection loop
-// Problem: useEffect was running multiple times causing repeated connections
-// Solution: Properly manage connection lifecycle with stable dependencies
+// PHASE 1: Enhanced WebSocket hook with session tracking and all new message types
+// Key improvements:
+// 1. Proper session ID handling for thread continuity
+// 2. Support for all new WebSocket message types
+// 3. Enhanced error handling and connection management
+// 4. Message queuing for reliability
+// 5. Heartbeat and reconnection logic
 
 import { useRef, useCallback, useEffect, useState } from 'react';
 import type { WsServerMessage, WsClientMessage } from '../types/websocket';
@@ -41,7 +45,7 @@ export function useWebSocket({
   const isConnecting = useRef(false);
   const messageQueue = useRef<WsClientMessage[]>([]);
   
-  // CRITICAL: Track if we've initialized to prevent multiple connections
+  // Track if we've initialized to prevent multiple connections
   const hasInitialized = useRef(false);
 
   const getReconnectDelay = useCallback(() => {
@@ -58,96 +62,71 @@ export function useWebSocket({
       const messages = [...messageQueue.current];
       messageQueue.current = [];
       messages.forEach(msg => {
-        ws.current?.send(JSON.stringify(msg));
+        try {
+          ws.current?.send(JSON.stringify(msg));
+        } catch (error) {
+          console.error('[WS] Failed to send queued message:', error);
+        }
       });
-    }
-  }, []);
-
-  const clearTimeouts = useCallback(() => {
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current);
-      reconnectTimeout.current = undefined;
-    }
-    if (heartbeatTimeout.current) {
-      clearTimeout(heartbeatTimeout.current);
-      heartbeatTimeout.current = undefined;
-    }
-    if (connectTimeout.current) {
-      clearTimeout(connectTimeout.current);
-      connectTimeout.current = undefined;
     }
   }, []);
 
   const startHeartbeat = useCallback(() => {
     if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
-    const sendHeartbeat = () => {
+    
+    heartbeatTimeout.current = setTimeout(() => {
       if (ws.current?.readyState === WebSocket.OPEN) {
-        console.log('[WS] Heartbeat check');
-        heartbeatTimeout.current = setTimeout(sendHeartbeat, heartbeatInterval);
+        try {
+          ws.current.send(JSON.stringify({ type: 'heartbeat' }));
+          startHeartbeat(); // Schedule next heartbeat
+        } catch (error) {
+          console.error('[WS] Heartbeat failed:', error);
+        }
       }
-    };
-    heartbeatTimeout.current = setTimeout(sendHeartbeat, heartbeatInterval);
+    }, heartbeatInterval);
   }, [heartbeatInterval]);
 
-  const disconnect = useCallback(() => {
-    console.log('[WS] Disconnecting...');
-    shouldReconnect.current = false;
-    isConnecting.current = false;
-    clearTimeouts();
+  const clearTimeouts = useCallback(() => {
+    if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+    if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
+    if (connectTimeout.current) clearTimeout(connectTimeout.current);
+  }, []);
+
+  const attemptReconnect = useCallback(() => {
+    if (!shouldReconnect.current || isConnecting.current) return;
+
+    const delay = getReconnectDelay();
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1})`);
     
-    if (ws.current) {
-      // Remove all event handlers before closing
-      ws.current.onopen = null;
-      ws.current.onclose = null;
-      ws.current.onerror = null;
-      ws.current.onmessage = null;
-      
-      if (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING) {
-        ws.current.close(1000, 'User disconnect');
+    reconnectTimeout.current = setTimeout(() => {
+      if (shouldReconnect.current) {
+        reconnectAttempts.current++;
+        connect();
       }
-      ws.current = null;
-    }
-    
-    setIsConnected(false);
-    messageQueue.current = [];
-  }, [clearTimeouts]);
+    }, delay);
+  }, [getReconnectDelay]);
 
   const connect = useCallback(() => {
-    // Prevent multiple simultaneous connection attempts
-    if (isConnecting.current) {
-      console.log('[WS] Already connecting, skipping...');
-      return;
-    }
-    
-    if (!shouldReconnect.current) {
-      console.log('[WS] Should not reconnect, skipping...');
-      return;
-    }
-    
-    // Check if already connected
-    if (ws.current && (ws.current.readyState === WebSocket.CONNECTING || ws.current.readyState === WebSocket.OPEN)) {
-      console.log('[WS] Already connected or connecting');
+    if (isConnecting.current || (ws.current && ws.current.readyState === WebSocket.OPEN)) {
       return;
     }
 
     isConnecting.current = true;
-    clearTimeouts();
+    console.log('[WS] Connecting to:', url);
+
+    // Connection timeout
+    connectTimeout.current = setTimeout(() => {
+      if (ws.current && ws.current.readyState === WebSocket.CONNECTING) {
+        console.log('[WS] Connection timeout');
+        ws.current.close();
+        isConnecting.current = false;
+        attemptReconnect();
+      }
+    }, connectionTimeout);
 
     try {
-      console.log(`[WS] Attempting connection to ${url}`);
       const newWs = new WebSocket(url);
-      
-      // Store reference immediately to prevent duplicate connections
       ws.current = newWs;
-
-      connectTimeout.current = setTimeout(() => {
-        if (newWs.readyState === WebSocket.CONNECTING) {
-          console.log('[WS] Connection timeout, closing...');
-          newWs.close();
-          isConnecting.current = false;
-          ws.current = null;
-        }
-      }, connectionTimeout);
 
       newWs.onopen = () => {
         console.log('[WS] Connected successfully');
@@ -164,20 +143,43 @@ export function useWebSocket({
         try {
           const message: WsServerMessage = JSON.parse(event.data);
           
-          // Enhanced logging
+          // Enhanced logging for debugging
           const messageInfo = {
             type: message.type,
             hasContent: 'content' in message ? !!(message as any).content : false,
             contentLength: 'content' in message ? (message as any).content?.length : 0,
-            fullMessage: message
+            timestamp: new Date().toISOString()
           };
           
           console.log('[WS] Message received:', messageInfo);
           
-          // Log chunk content preview
-          if (message.type === 'chunk') {
-            const chunk = message as any;
-            console.log(`[WS] Chunk content preview: "${chunk.content?.substring(0, 50)}..."`);
+          // Log specific message type details
+          switch (message.type) {
+            case 'chunk':
+              const chunk = message as any;
+              console.log(`[WS] Chunk preview: "${chunk.content?.substring(0, 50)}..."`);
+              break;
+            case 'tool_call_started':
+            case 'tool_call_completed':
+            case 'tool_call_failed':
+              console.log(`[WS] Tool event: ${message.type}`, {
+                tool_type: (message as any).tool_type,
+                tool_id: (message as any).tool_id
+              });
+              break;
+            case 'image_generated':
+              console.log(`[WS] Image generated:`, {
+                prompt: (message as any).prompt?.substring(0, 50) + '...',
+                url_count: (message as any).image_urls?.length || 1
+              });
+              break;
+            case 'complete':
+              console.log(`[WS] Complete with metadata:`, {
+                mood: (message as any).mood,
+                salience: (message as any).salience,
+                tags: (message as any).tags?.length || 0
+              });
+              break;
           }
           
           onMessage(message);
@@ -188,14 +190,14 @@ export function useWebSocket({
       };
 
       newWs.onerror = (error) => {
-        console.error('[WS] Error:', error);
+        console.error('[WS] Connection error:', error);
         clearTimeout(connectTimeout.current!);
         isConnecting.current = false;
         onError?.(error);
       };
 
       newWs.onclose = (event) => {
-        console.log(`[WS] Closed - Code: ${event.code}, Reason: ${event.reason}`);
+        console.log(`[WS] Connection closed - Code: ${event.code}, Reason: ${event.reason}`);
         clearTimeout(connectTimeout.current!);
         ws.current = null;
         setIsConnected(false);
@@ -203,75 +205,116 @@ export function useWebSocket({
         clearTimeouts();
         onDisconnect?.();
         
-        // Only reconnect on abnormal closure
-        if (shouldReconnect.current && event.code !== 1000 && event.code !== 1001) {
-          const delay = getReconnectDelay();
-          console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1})`);
-          reconnectTimeout.current = setTimeout(() => {
-            reconnectAttempts.current++;
-            connect();
-          }, delay);
+        // Attempt reconnection if it wasn't a clean closure
+        if (shouldReconnect.current && event.code !== 1000) {
+          attemptReconnect();
         }
       };
 
     } catch (error) {
       console.error('[WS] Failed to create WebSocket:', error);
-      ws.current = null;
-      setIsConnected(false);
       isConnecting.current = false;
-      
-      if (shouldReconnect.current) {
-        const delay = getReconnectDelay();
-        reconnectTimeout.current = setTimeout(() => {
-          reconnectAttempts.current++;
-          connect();
-        }, delay);
-      }
+      attemptReconnect();
     }
-  }, [url, onMessage, onConnect, onDisconnect, onError, getReconnectDelay, processMessageQueue, clearTimeouts, startHeartbeat, connectionTimeout]);
+  }, [url, onMessage, onConnect, onDisconnect, onError, connectionTimeout, startHeartbeat, processMessageQueue, attemptReconnect]);
 
+  // Enhanced send function with proper type support and queuing
   const send = useCallback((message: WsClientMessage) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
-      console.log(`[WS] → ${message.type}`, message);
-      ws.current.send(JSON.stringify(message));
-    } else {
-      console.warn(`[WS] Not connected, queueing ${message.type} message`);
-      messageQueue.current.push(message);
-      if (!isConnected && !isConnecting.current && shouldReconnect.current) {
-        connect();
+      try {
+        // Enhanced logging for sent messages
+        console.log('[WS] Sending message:', {
+          type: message.type,
+          hasContent: !!message.content,
+          contentLength: message.content?.length || 0,
+          session_id: message.session_id,
+          project_id: message.project_id,
+          has_metadata: !!message.metadata
+        });
+        
+        ws.current.send(JSON.stringify(message));
+        return true;
+      } catch (error) {
+        console.error('[WS] Failed to send message:', error);
+        // Add to queue for retry
+        messageQueue.current.push(message);
+        return false;
       }
+    } else {
+      console.log('[WS] WebSocket not ready, queueing message');
+      messageQueue.current.push(message);
+      return false;
     }
-  }, [isConnected, connect]);
+  }, []);
 
-  // CRITICAL FIX: Only connect once on mount, not on every render
-  useEffect(() => {
-    // Only initialize once
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-      shouldReconnect.current = true;
-      connect();
+  // Connection management
+  const disconnect = useCallback(() => {
+    console.log('[WS] Manual disconnect requested');
+    shouldReconnect.current = false;
+    clearTimeouts();
+    
+    if (ws.current) {
+      ws.current.close(1000, 'Manual disconnect');
+      ws.current = null;
     }
     
-    // Cleanup on unmount only
-    return () => {
-      if (hasInitialized.current) {
-        hasInitialized.current = false;
-        shouldReconnect.current = false;
-        disconnect();
-      }
-    };
-  }, []); // CRITICAL: Empty dependency array - only run once!
+    setIsConnected(false);
+    messageQueue.current = [];
+  }, [clearTimeouts]);
 
-  return { 
-    isConnected, 
-    send, 
-    disconnect,
-    reconnect: () => {
-      shouldReconnect.current = true;
-      reconnectAttempts.current = 0;
-      if (ws.current?.readyState !== WebSocket.OPEN && !isConnecting.current) {
-        connect();
+  const reconnect = useCallback(() => {
+    console.log('[WS] Manual reconnect requested');
+    disconnect();
+    shouldReconnect.current = true;
+    reconnectAttempts.current = 0;
+    
+    // Small delay to ensure cleanup
+    setTimeout(() => {
+      connect();
+    }, 100);
+  }, [disconnect, connect]);
+
+  // Initialize connection
+  useEffect(() => {
+    // CRITICAL: Prevent multiple initializations
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+    
+    console.log('[WS] Initializing WebSocket connection');
+    shouldReconnect.current = true;
+    connect();
+
+    // Cleanup function
+    return () => {
+      console.log('[WS] Cleaning up WebSocket');
+      shouldReconnect.current = false;
+      clearTimeouts();
+      
+      if (ws.current) {
+        ws.current.close(1000, 'Component unmounting');
+        ws.current = null;
       }
-    }
+      
+      setIsConnected(false);
+      messageQueue.current = [];
+    };
+  }, [connect, clearTimeouts]);
+
+  // Prevent reconnection when component unmounts
+  useEffect(() => {
+    return () => {
+      shouldReconnect.current = false;
+    };
+  }, []);
+
+  return {
+    isConnected,
+    send,
+    disconnect,
+    reconnect,
+    // Additional state for debugging/monitoring
+    connectionState: ws.current?.readyState,
+    reconnectAttempts: reconnectAttempts.current,
+    queuedMessages: messageQueue.current.length
   };
 }

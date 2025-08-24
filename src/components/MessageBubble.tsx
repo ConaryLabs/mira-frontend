@@ -1,57 +1,63 @@
 // src/components/MessageBubble.tsx
+// Cleaned up version removing artifact UI per Phase 2 of guide
+
 import React from 'react';
 import { User, Bot } from 'lucide-react';
-import type { Message } from '../types/messages';
-import { ToolResultsContainer, ToolResult, Citation } from './ToolResults/ToolResultsContainer';
 import clsx from 'clsx';
+import type { Message } from '../types/messages';
+import { ToolResultsContainer } from './ToolResultsContainer';
 
 interface MessageBubbleProps {
   message: Message;
-  isDark?: boolean;
-  onArtifactClick?: (artifactId: string) => void;
+  onArtifactClick?: (artifactId: string) => void; // Keep for backwards compatibility but won't be used
+  isDark: boolean;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({
-  message,
-  isDark = false,
-  onArtifactClick
-}) => {
+export function MessageBubble({ message, isDark }: MessageBubbleProps) {
   const isUser = message.role === 'user';
-  const toolResults: ToolResult[] = message.toolResults || [];
-  const citations: Citation[] = message.citations || [];
+  const toolResults = message.toolResults || [];
+  const citations = message.citations || [];
 
+  // Enhanced content rendering with citation support
   const renderContentWithCitations = (content: string) => {
-    if (!citations || citations.length === 0) {
-      return <div className="whitespace-pre-wrap">{content}</div>;
+    if (!citations.length) {
+      return content;
     }
+
+    // Simple citation rendering - replace [n] with clickable citations
     let processedContent = content;
-    const citationElements: JSX.Element[] = [];
-    citations.forEach((citation, idx) => {
-      const n = idx + 1;
-      const re = new RegExp(`\\[${n}\\]`, 'g');
-      if (processedContent.match(re)) {
-        processedContent = processedContent.replace(re, `§CITE${n}§`);
-        citationElements[n] = (
-          <sup className="text-blue-600 dark:text-blue-400 hover:underline cursor-help ml-0.5" title={citation.filename}>
-            [{n}]
-          </sup>
+    citations.forEach((citation, index) => {
+      const citationMark = `[${index + 1}]`;
+      if (processedContent.includes(citationMark)) {
+        processedContent = processedContent.replace(
+          citationMark,
+          `<sup class="citation-link text-blue-600 dark:text-blue-400 cursor-pointer" data-citation="${index}">[${index + 1}]</sup>`
         );
       }
     });
-    const parts = processedContent.split(/§CITE(\d+)§/);
-    const elements: JSX.Element[] = [];
-    parts.forEach((part, idx) => {
-      if (idx % 2 === 0) elements.push(<span key={`text-${idx}`}>{part}</span>);
-      else {
-        const n = parseInt(part);
-        elements.push(<span key={`cite-${idx}`}>{citationElements[n]}</span>);
-      }
-    });
-    return <div className="whitespace-pre-wrap">{elements}</div>;
+
+    return (
+      <div
+        dangerouslySetInnerHTML={{ __html: processedContent }}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.classList.contains('citation-link')) {
+            const citationIndex = parseInt(target.getAttribute('data-citation') || '0');
+            const citation = citations[citationIndex];
+            if (citation?.url) {
+              window.open(citation.url, '_blank');
+            }
+          }
+        }}
+      />
+    );
   };
 
   return (
-    <div className={clsx('flex gap-3 animate-fade-in', isUser ? 'flex-row-reverse' : 'flex-row')}>
+    <div className={clsx(
+      'flex space-x-3 py-3',
+      isUser ? 'flex-row-reverse' : 'flex-row'
+    )}>
       {/* Avatar */}
       <div className={clsx(
         'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
@@ -104,16 +110,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
 
-        {/* Artifact reference */}
-        {message.artifactId && onArtifactClick && (
-          <button
-            onClick={() => onArtifactClick(message.artifactId!)}
-            className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            View Artifact
-          </button>
-        )}
+        {/* REMOVED: Artifact reference UI as per Phase 2 cleanup */}
       </div>
     </div>
   );
-};
+}
