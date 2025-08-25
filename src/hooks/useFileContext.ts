@@ -1,7 +1,8 @@
-// src/hooks/useFileContext.ts
-// Extract artifact/file state management from ChatContainer.tsx
+// src/hooks/useFileContext.ts  
+// PHASE 2: Artifact and file management (~100 lines)
+// Responsibilities: Artifacts, file context, session management
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 
 interface SessionArtifact {
   id: string;
@@ -9,15 +10,9 @@ interface SessionArtifact {
   content: string;
   artifact_type: 'code' | 'document' | 'data';
   language?: string;
+  size?: number;
   created_at: string;
   updated_at: string;
-}
-
-interface FileContext {
-  file_path?: string;
-  project_id?: string;
-  attachment_id?: string;
-  language?: string;
 }
 
 export interface FileContextState {
@@ -25,14 +20,12 @@ export interface FileContextState {
   selectedArtifactId: string | null;
   artifactCount: number;
   sessionArtifacts: SessionArtifact[];
-  currentFile: FileContext | null;
 }
 
 export interface FileContextActions {
   handleArtifactClick: (artifactId: string) => void;
   setShowArtifacts: (show: boolean) => void;
   setSelectedArtifactId: (id: string | null) => void;
-  setCurrentFile: (file: FileContext | null) => void;
   loadArtifacts: (projectId: string) => Promise<void>;
   clearArtifacts: () => void;
 }
@@ -42,7 +35,6 @@ export function useFileContext() {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [artifactCount, setArtifactCount] = useState(0);
   const [sessionArtifacts, setSessionArtifacts] = useState<SessionArtifact[]>([]);
-  const [currentFile, setCurrentFile] = useState<FileContext | null>(null);
 
   const handleArtifactClick = useCallback((artifactId: string) => {
     setSelectedArtifactId(artifactId);
@@ -58,7 +50,11 @@ export function useFileContext() {
     }
 
     try {
-      const response = await fetch(`/api/projects/${projectId}/artifacts`);
+      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:3001' 
+        : '';
+        
+      const response = await fetch(`${baseUrl}/projects/${projectId}/artifacts`);
       if (response.ok) {
         const data = await response.json();
         const artifacts = data.artifacts || [];
@@ -81,7 +77,6 @@ export function useFileContext() {
     setShowArtifacts(false);
     setSessionArtifacts([]);
     setSelectedArtifactId(null);
-    setCurrentFile(null);
   }, []);
 
   const state: FileContextState = {
@@ -89,23 +84,15 @@ export function useFileContext() {
     selectedArtifactId,
     artifactCount,
     sessionArtifacts,
-    currentFile,
   };
 
   const actions: FileContextActions = {
     handleArtifactClick,
     setShowArtifacts,
     setSelectedArtifactId,
-    setCurrentFile,
     loadArtifacts,
     clearArtifacts,
   };
 
-  return {
-    state,
-    actions,
-    // Also expose individual state items for convenience
-    ...state,
-    ...actions,
-  };
+  return { ...state, ...actions };
 }

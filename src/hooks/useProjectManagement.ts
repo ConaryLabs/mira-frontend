@@ -1,8 +1,8 @@
 // src/hooks/useProjectManagement.ts
-// Extract project CRUD and active project handling from ChatContainer.tsx
+// PHASE 2: Project CRUD and management (~80 lines)
+// Responsibilities: Project loading, creation, selection
 
 import { useState, useCallback, useEffect } from 'react';
-import { projectApi } from '../services/projectApi';
 
 interface Project {
   id: string;
@@ -18,11 +18,10 @@ export interface ProjectState {
 }
 
 export interface ProjectActions {
-  handleProjectCreate: (name: string, description?: string) => Promise<void>;
+  handleProjectCreate: (name: string) => Promise<void>;
   handleProjectSelect: (projectId: string) => void;
-  handleProjectDelete: (projectId: string) => Promise<void>;
-  loadProjects: () => Promise<void>;
   setCurrentProjectId: (projectId: string | null) => void;
+  loadProjects: () => Promise<void>;
 }
 
 export function useProjectManagement() {
@@ -33,20 +32,45 @@ export function useProjectManagement() {
   const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
-      const projectList = await projectApi.listProjects();
-      setProjects(projectList);
+      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:3001' 
+        : '';
+        
+      const res = await fetch(`${baseUrl}/projects`);
+      if (res.ok) {
+        const data = await res.json();
+        const projectList = data.projects || [];
+        setProjects(projectList);
+        
+        // Auto-select first project if none selected
+        if (projectList.length > 0 && !currentProjectId) {
+          setCurrentProjectId(projectList[0].id);
+        }
+      }
     } catch (error) {
       console.error('Failed to load projects:', error);
     } finally {
       setIsLoadingProjects(false);
     }
-  }, []);
+  }, [currentProjectId]);
 
-  const handleProjectCreate = useCallback(async (name: string, description?: string) => {
+  const handleProjectCreate = useCallback(async (name: string) => {
     try {
-      const newProject = await projectApi.createProject({ name, description });
-      setProjects(prev => [newProject, ...prev]);
-      setCurrentProjectId(newProject.id);
+      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:3001' 
+        : '';
+        
+      const response = await fetch(`${baseUrl}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      
+      if (response.ok) {
+        const newProject = await response.json();
+        setProjects(prev => [...prev, newProject]);
+        setCurrentProjectId(newProject.id);
+      }
     } catch (error) {
       console.error('Failed to create project:', error);
       throw error;
@@ -56,19 +80,6 @@ export function useProjectManagement() {
   const handleProjectSelect = useCallback((projectId: string) => {
     setCurrentProjectId(projectId);
   }, []);
-
-  const handleProjectDelete = useCallback(async (projectId: string) => {
-    try {
-      await projectApi.deleteProject(projectId);
-      setProjects(prev => prev.filter(p => p.id !== projectId));
-      if (currentProjectId === projectId) {
-        setCurrentProjectId(null);
-      }
-    } catch (error) {
-      console.error('Failed to delete project:', error);
-      throw error;
-    }
-  }, [currentProjectId]);
 
   // Load projects on mount
   useEffect(() => {
@@ -84,16 +95,9 @@ export function useProjectManagement() {
   const actions: ProjectActions = {
     handleProjectCreate,
     handleProjectSelect,
-    handleProjectDelete,
-    loadProjects,
     setCurrentProjectId,
+    loadProjects,
   };
 
-  return {
-    state,
-    actions,
-    // Also expose individual state items for convenience
-    ...state,
-    ...actions,
-  };
+  return { ...state, ...actions };
 }
