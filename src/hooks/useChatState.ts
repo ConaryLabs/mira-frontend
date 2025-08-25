@@ -222,9 +222,9 @@ export function useChatState() {
     }
   }, [sessionId]);
 
-  // WebSocket connection
+  // WebSocket connection - hardcoded for mira.conary.io deployment
   const { isConnected, send } = useWebSocket({
-    url: 'ws://localhost:3001/ws',
+    url: 'wss://mira.conary.io/ws',
     onMessage: handleServerMessage,
     onConnect: () => console.log('[useChatState] WebSocket connected'),
     onDisconnect: () => console.log('[useChatState] WebSocket disconnected'),
@@ -262,15 +262,25 @@ export function useChatState() {
     send(wsMessage);
   }, [isConnected, sessionId, send, addUserMessage]);
 
-  // History loading
+  // History loading with dynamic base URL
   const loadChatHistory = useCallback(async (offset = 0) => {
     if (offset === 0) setIsLoadingHistory(true); 
     else setIsLoadingMore(true);
 
     try {
-      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? 'http://localhost:3001' 
-        : '';
+      // Dynamic base URL for API calls
+      const baseUrl = (() => {
+        const hostname = window.location.hostname;
+        
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          return 'http://localhost:3001';
+        }
+        
+        // For remote access, use the same protocol and host
+        const protocol = window.location.protocol;
+        const port = window.location.port || (protocol === 'https:' ? '443' : '80');
+        return `${protocol}//${hostname}:${port}`;
+      })();
         
       const res = await fetch(`${baseUrl}/chat/history?limit=30&offset=${offset}&session_id=${sessionId}`);
       if (res.ok) {

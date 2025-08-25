@@ -29,13 +29,23 @@ export function useProjectManagement() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
+  const getBaseUrl = useCallback(() => {
+    const hostname = window.location.hostname;
+    
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+    
+    // For remote access, use the same protocol and host
+    const protocol = window.location.protocol;
+    const port = window.location.port || (protocol === 'https:' ? '443' : '80');
+    return `${protocol}//${hostname}:${port}`;
+  }, [getBaseUrl]);
+
   const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
-      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? 'http://localhost:3001' 
-        : '';
-        
+      const baseUrl = getBaseUrl();
       const res = await fetch(`${baseUrl}/projects`);
       if (res.ok) {
         const data = await res.json();
@@ -52,14 +62,11 @@ export function useProjectManagement() {
     } finally {
       setIsLoadingProjects(false);
     }
-  }, [currentProjectId]);
+  }, [getBaseUrl]);
 
   const handleProjectCreate = useCallback(async (name: string) => {
     try {
-      const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? 'http://localhost:3001' 
-        : '';
-        
+      const baseUrl = getBaseUrl();
       const response = await fetch(`${baseUrl}/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
