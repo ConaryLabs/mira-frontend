@@ -3,6 +3,7 @@
 // Responsibilities: Artifacts, file context, session management
 
 import { useState, useCallback } from 'react';
+import { API_BASE_URL } from '../services/config';
 
 interface SessionArtifact {
   id: string;
@@ -41,19 +42,6 @@ export function useFileContext() {
     setShowArtifacts(true);
   }, []);
 
-  const getBaseUrl = useCallback(() => {
-    const hostname = window.location.hostname;
-    
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:3001';
-    }
-    
-    // For remote access, use the same protocol and host  
-    const protocol = window.location.protocol;
-    const port = window.location.port || (protocol === 'https:' ? '443' : '80');
-    return `${protocol}//${hostname}:${port}`;
-  }, []);
-
   const loadArtifacts = useCallback(async (projectId: string) => {
     if (!projectId) {
       setArtifactCount(0);
@@ -63,8 +51,7 @@ export function useFileContext() {
     }
 
     try {
-      const baseUrl = getBaseUrl();
-      const response = await fetch(`${baseUrl}/projects/${projectId}/artifacts`);
+      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/artifacts`);
       if (response.ok) {
         const data = await response.json();
         const artifacts = data.artifacts || [];

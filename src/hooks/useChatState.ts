@@ -4,6 +4,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useWebSocket } from './useWebSocket';
+import { getWebSocketUrl, getAPIUrl, debugConfig } from '../services/config';
 import { normalizeToolType } from '../types/websocket';
 import type { 
   Message, 
@@ -175,10 +176,10 @@ export function useChatState() {
             filename: cit.filename, 
             url: cit.url, 
             snippet: cit.snippet,
-            page_number: cit.page_number,
-            line_number: cit.line_number,
-            confidence_score: cit.confidence_score,
-            source_type: cit.source_type
+            page_number: (cit as any).page_number,
+            line_number: (cit as any).line_number,
+            confidence_score: (cit as any).confidence_score,
+            source_type: (cit as any).source_type
           };
           pendingCitations.current.push(citation);
         }
@@ -222,13 +223,22 @@ export function useChatState() {
     }
   }, [sessionId]);
 
-  // WebSocket connection - hardcoded for mira.conary.io deployment
+  // WebSocket connection - use dynamic URL based on environment
   const { isConnected, send } = useWebSocket({
-    url: 'wss://mira.conary.io/ws',
+    url: getWebSocketUrl('/ws/chat'),  // Use proper path and dynamic URL
     onMessage: handleServerMessage,
-    onConnect: () => console.log('[useChatState] WebSocket connected'),
-    onDisconnect: () => console.log('[useChatState] WebSocket disconnected'),
-    onError: (error) => console.error('[useChatState] WebSocket error:', error),
+    onConnect: () => {
+      console.log('[useChatState] WebSocket connected successfully');
+      setConnectionError(''); // Clear connection errors on successful connect
+    },
+    onDisconnect: () => {
+      console.log('[useChatState] WebSocket disconnected');
+      setConnectionError('Connection lost. Reconnecting...');
+    },
+    onError: (error) => {
+      console.error('[useChatState] WebSocket error:', error);
+      setConnectionError('Connection failed. Please check your internet connection.');
+    },
   });
 
   // Add user message to chat (for tool invocations)
@@ -243,9 +253,17 @@ export function useChatState() {
     setMessages(prev => [userMessage, ...prev]);
   }, [sessionId]);
 
-  // Message sending
+  // Message sending with better error handling
   const handleSendMessage = useCallback((content: string) => {
-    if (!content.trim() || !isConnected) return;
+    if (!content.trim()) {
+      console.warn('[useChatState] Cannot send empty message');
+      return;
+    }
+    
+    if (!isConnected) {
+      setConnectionError('Not connected to server. Please wait for reconnection.');
+      return;
+    }
 
     addUserMessage(content);
     setIsThinking(true);
@@ -259,49 +277,57 @@ export function useChatState() {
       metadata
     };
 
+    console.log('[useChatState] Sending message:', { type: wsMessage.type, length: content.length, sessionId });
     send(wsMessage);
   }, [isConnected, sessionId, send, addUserMessage]);
 
-  // History loading with dynamic base URL
+  // History loading with better error handling
   const loadChatHistory = useCallback(async (offset = 0) => {
+    console.log(`[useChatState] Loading chat history, offset: ${offset}`);
+    
     if (offset === 0) setIsLoadingHistory(true); 
     else setIsLoadingMore(true);
 
     try {
-      // Dynamic base URL for API calls
-      const baseUrl = (() => {
-        const hostname = window.location.hostname;
-        
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-          return 'http://localhost:3001';
-        }
-        
-        // For remote access, use the same protocol and host
-        const protocol = window.location.protocol;
-        const port = window.location.port || (protocol === 'https:' ? '443' : '80');
-        return `${protocol}//${hostname}:${port}`;
-      })();
-        
-      const res = await fetch(`${baseUrl}/chat/history?limit=30&offset=${offset}&session_id=${sessionId}`);
+      // FIXED: Use getAPIUrl helper to avoid double /api
+      const url = getAPIUrl(`chat/history?limit=30&offset=${offset}&session_id=${sessionId}`);
+      console.log(`[useChatState] Fetching history from: ${url}`);
+      
+      // Debug config on first load
+      if (offset === 0) {
+        debugConfig();
+      }
+      
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Add timeout to prevent hanging
+        signal: AbortSignal.timeout(10000)
+      });
+      
       if (res.ok) {
         const data = await res.json();
         const rawMessages = data.messages || data.history || [];
+        console.log(`[useChatState] Loaded ${rawMessages.length} messages`);
         
         const formatted: Message[] = rawMessages.map((msg: any) => {
           const role = msg.role === 'user' || msg.sender === 'User' ? 'user' : 'mira';
           const ts = typeof msg.timestamp === 'number' 
-            ? new Date(msg.timestamp * 1000) 
-            : new Date(msg.timestamp);
-
+            ? new Date(msg.timestamp * 1000)  // Unix timestamp
+            : new Date(msg.timestamp);       // ISO string
+          
           return {
-            id: msg.id || Date.now().toString(),
+            id: msg.id || msg.message_id || `hist_${Date.now()}_${Math.random()}`,
             role,
-            content: msg.content || '',
+            content: msg.content || msg.message || '',
             timestamp: ts,
+            isStreaming: false,
+            session_id: msg.session_id || sessionId,
             mood: msg.mood,
             salience: msg.salience,
             tags: msg.tags,
-            session_id: msg.session_id || sessionId,
             previous_response_id: msg.previous_response_id,
             thread_id: msg.thread_id,
             toolResults: msg.tool_results?.map((tr: any) => ({
@@ -323,21 +349,31 @@ export function useChatState() {
               confidence_score: cit.confidence_score,
               source_type: cit.source_type
             }))
-          };
+          } as Message;
         });
-
+        
         if (offset === 0) {
           setMessages(formatted.reverse());
           setHistoryOffset(formatted.length);
         } else {
+          // FIXED: Prepend older messages to the beginning of the array
           setMessages(prev => [...formatted.reverse(), ...prev]);
           setHistoryOffset(prev => prev + formatted.length);
         }
         
         setHasMoreHistory(formatted.length === 30);
+      } else {
+        const errorText = await res.text();
+        console.error(`[useChatState] Failed to load chat history: ${res.status} - ${errorText}`);
+        setConnectionError(`Failed to load history: ${res.status}`);
       }
     } catch (error) {
-      console.error('Failed to load chat history:', error);
+      console.error('[useChatState] Error loading chat history:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        setConnectionError('Request timeout. Please try again.');
+      } else {
+        setConnectionError('Failed to load chat history. Please check your connection.');
+      }
     } finally {
       setIsLoadingHistory(false);
       setIsLoadingMore(false);
@@ -345,12 +381,16 @@ export function useChatState() {
   }, [sessionId]);
 
   const clearMessages = useCallback(() => {
+    console.log('[useChatState] Clearing all messages');
     setMessages([]);
     setHistoryOffset(0);
     setHasMoreHistory(true);
+    pendingToolResults.current = [];
+    pendingCitations.current = [];
+    currentStreamId.current = '';
   }, []);
 
-  // Cleanup
+  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (statusTimer.current) {
@@ -369,7 +409,7 @@ export function useChatState() {
     statusMessage,
     connectionError,
     isConnected,
-    sessionId
+    sessionId,
   };
 
   const actions: ChatActions = {
@@ -379,7 +419,7 @@ export function useChatState() {
     setStatusMessage,
     setConnectionError,
     clearMessages,
-    send
+    send,
   };
 
   return { ...state, ...actions };

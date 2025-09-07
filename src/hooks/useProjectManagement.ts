@@ -3,6 +3,7 @@
 // Responsibilities: Project loading, creation, selection
 
 import { useState, useCallback, useEffect } from 'react';
+import { API_BASE_URL } from '../services/config';
 
 interface Project {
   id: string;
@@ -29,24 +30,10 @@ export function useProjectManagement() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
-  const getBaseUrl = useCallback(() => {
-    const hostname = window.location.hostname;
-    
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:3001';
-    }
-    
-    // For remote access, use the same protocol and host
-    const protocol = window.location.protocol;
-    const port = window.location.port || (protocol === 'https:' ? '443' : '80');
-    return `${protocol}//${hostname}:${port}`;
-  }, [getBaseUrl]);
-
   const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
-      const baseUrl = getBaseUrl();
-      const res = await fetch(`${baseUrl}/projects`);
+      const res = await fetch(`${API_BASE_URL}/projects`);
       if (res.ok) {
         const data = await res.json();
         const projectList = data.projects || [];
@@ -62,12 +49,11 @@ export function useProjectManagement() {
     } finally {
       setIsLoadingProjects(false);
     }
-  }, [getBaseUrl]);
+  }, [currentProjectId]);
 
   const handleProjectCreate = useCallback(async (name: string) => {
     try {
-      const baseUrl = getBaseUrl();
-      const response = await fetch(`${baseUrl}/projects`, {
+      const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),

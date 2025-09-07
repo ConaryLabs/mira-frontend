@@ -1,4 +1,4 @@
-// vite.config.ts
+// vite.config.js
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,14 +7,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      // Proxy API requests to the backend
-      '/chat': {
-        target: 'http://localhost:8080',
+      // Proxy API requests to the backend (port 3001, not 8080)
+      '/api': {
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
-      // Proxy WebSocket connections
+      // Proxy WebSocket connections to /ws/chat endpoint
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: 'ws://localhost:3001',
         ws: true,
         changeOrigin: true,
       },
