@@ -2,110 +2,75 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { getWebSocketUrl, getAPIUrl, debugConfig } from '../services/config';
-import type { 
-  Message, 
-  ToolResult, 
-  Citation
-} from '../types/messages';
-import type { 
-  WsServerMessage, 
-  WsClientMessage,
-  WsStreamChunk,
-  WsStreamEnd,
-  WsComplete,
-  WsStatus,
-  WsError,
-  WsData,
-  createChatMessage
-} from '../types/websocket';
-
-export interface ChatState {
-  messages: Message[];
-  isThinking: boolean;
-  isLoadingHistory: boolean;
-  isLoadingMore: boolean;
-  hasMoreHistory: boolean;
-  historyOffset: number;
-  statusMessage: string;
-  connectionError: string;
-  isConnected: boolean;
-  sessionId: string;
-}
-
-export interface ChatActions {
-  handleSendMessage: (content: string) => void;
-  addUserMessage: (content: string) => void;
-  loadChatHistory: (offset?: number) => Promise<void>;
-  setStatusMessage: (message: string) => void;
-  setConnectionError: (error: string) => void;
-  clearMessages: () => void;
-  send: (message: WsClientMessage) => void;
-}
+import { getWebSocketUrl } from '../services/config';
+import type { Message } from '../types/messages';
+import type { WsServerMessage, WsClientMessage, WsChatMessage } from '../types/websocket';
 
 export function useChatState() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [connectionError, setConnectionError] = useState<string>('');
-
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
+  // Track current streaming message
   const currentStreamId = useRef<string>('');
-  const pendingToolResults = useRef<ToolResult[]>([]);
-  const pendingCitations = useRef<Citation[]>([]);
   const statusTimer = useRef<NodeJS.Timeout>();
 
+  // Session ID management - memoized to prevent recreation
   const sessionId = useMemo(() => {
     const stored = localStorage.getItem('mira_session_id');
     if (stored) return stored;
     
-    const newId = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    const newId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     localStorage.setItem('mira_session_id', newId);
     return newId;
   }, []);
 
+  // Handle incoming WebSocket messages
   const handleServerMessage = useCallback((msg: WsServerMessage) => {
-    console.log('[useChatState] Received WS message:', msg.type);
+    console.log('[useChatState] Received message:', msg.type);
     
     switch (msg.type) {
       case 'stream_chunk': {
-        const chunk = msg as WsStreamChunk;
+        const chunk = msg as any;
         if (chunk.text && chunk.text.trim()) {
-          setIsThinking(false);
-        }
-        
-        setMessages(prev => {
-          const firstMsg = prev[0];
+          setIsThinking(false); // Stop thinking animation once text starts
           
-          if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
-            const updated = { 
-              ...firstMsg, 
-              content: firstMsg.content + (chunk.text || '')
-            };
-            return [updated, ...prev.slice(1)];
-          } else {
-            const newMessage: Message = {
-              id: Date.now().toString(),
-              role: 'mira',
-              content: chunk.text || '',
-              timestamp: new Date(),
-              isStreaming: true,
-              session_id: sessionId
-            };
-            currentStreamId.current = newMessage.id;
-            pendingToolResults.current = [];
-            pendingCitations.current = [];
-            return [newMessage, ...prev];
-          }
-        });
+          setMessages(prev => {
+            // Check if we're already streaming
+            const firstMsg = prev[0];
+            
+            if (firstMsg && firstMsg.id === currentStreamId.current && firstMsg.isStreaming) {
+              // Append to existing streaming message
+              const updated = { 
+                ...firstMsg, 
+                content: firstMsg.content + (chunk.text || '')
+              };
+              return [updated, ...prev.slice(1)];
+            } else {
+              // Start new streaming message
+              const newMessage: Message = {
+                id: Date.now().toString(),
+                role: 'mira',
+                content: chunk.text || '',
+                timestamp: new Date(),
+                isStreaming: true,
+                session_id: sessionId
+              };
+              currentStreamId.current = newMessage.id;
+              return [newMessage, ...prev];
+            }
+          });
+        }
         break;
       }
 
       case 'stream_end': {
+        console.log('[useChatState] Stream ended');
         setMessages(prev => {
           const updated = [...prev];
           if (updated.length > 0 && updated[0].isStreaming) {
@@ -116,11 +81,17 @@ export function useChatState() {
           }
           return updated;
         });
+        currentStreamId.current = '';
         break;
       }
 
       case 'complete': {
-        const completeMsg = msg as WsComplete;
+        const completeMsg = msg as any;
+        console.log('[useChatState] Complete with metadata:', {
+          mood: completeMsg.mood,
+          salience: completeMsg.salience,
+          tags: completeMsg.tags
+        });
         
         setMessages(prev => {
           const updated = [...prev];
@@ -131,75 +102,85 @@ export function useChatState() {
               mood: completeMsg.mood,
               salience: completeMsg.salience,
               tags: completeMsg.tags,
-              toolResults: pendingToolResults.current.length ? [...pendingToolResults.current] : undefined,
-              citations: pendingCitations.current.length ? [...pendingCitations.current] : undefined,
             } as Message;
           }
           return updated;
         });
         
-        pendingToolResults.current = [];
-        pendingCitations.current = [];
         setIsThinking(false);
-        break;
-      }
-
-      case 'status': {
-        const statusMsg = msg as WsStatus;
-        const statusText = statusMsg.message || '';
-        setStatusMessage(statusText);
-        
-        if (statusTimer.current) clearTimeout(statusTimer.current);
-        const timer = setTimeout(() => setStatusMessage(''), 5000);
-        statusTimer.current = timer;
-        break;
-      }
-
-      case 'error': {
-        const errorMsg = msg as WsError;
-        setIsThinking(false);
-        
-        const errorText = errorMsg.message || 'An error occurred';
-        setConnectionError(errorText);
-        setTimeout(() => setConnectionError(''), 5000);
+        currentStreamId.current = '';
         break;
       }
 
       case 'done': {
+        console.log('[useChatState] Done (tool path)');
         setIsThinking(false);
-        
         setMessages(prev => {
           const updated = [...prev];
           if (updated.length > 0 && updated[0].isStreaming) {
             updated[0] = {
               ...updated[0],
               isStreaming: false,
-              toolResults: pendingToolResults.current.length ? [...pendingToolResults.current] : undefined,
-              citations: pendingCitations.current.length ? [...pendingCitations.current] : undefined,
             } as Message;
           }
           return updated;
         });
+        currentStreamId.current = '';
+        break;
+      }
+
+      case 'status': {
+        const statusMsg = msg as any;
+        const statusText = statusMsg.message || '';
+        if (statusText && statusText !== 'ping' && statusText !== 'pong') {
+          setStatusMessage(statusText);
+          
+          // Clear status after 5 seconds
+          if (statusTimer.current) clearTimeout(statusTimer.current);
+          statusTimer.current = setTimeout(() => setStatusMessage(''), 5000);
+        }
+        break;
+      }
+
+      case 'error': {
+        const errorMsg = msg as any;
+        setIsThinking(false);
         
-        pendingToolResults.current = [];
-        pendingCitations.current = [];
+        const errorText = errorMsg.message || 'An error occurred';
+        console.error('[useChatState] Error:', errorText);
+        setConnectionError(errorText);
+        
+        // Clear error after 5 seconds
+        setTimeout(() => setConnectionError(''), 5000);
+        break;
+      }
+
+      case 'connection_ready': {
+        console.log('[useChatState] Connection ready');
+        setConnectionError('');
         break;
       }
 
       case 'data': {
-        const dataMsg = msg as WsData;
+        const dataMsg = msg as any;
         console.log('[useChatState] Received data:', dataMsg.data);
-        // Handle data responses (projects, etc) if needed
+        // Handle data responses if needed (projects, etc)
         break;
       }
+
+      default:
+        console.log('[useChatState] Unknown message type:', msg.type);
     }
   }, [sessionId]);
 
+  // Create WebSocket connection with memoized URL
+  const wsUrl = useMemo(() => getWebSocketUrl('/ws'), []);
+  
   const { isConnected, send } = useWebSocket({
-    url: getWebSocketUrl('/ws'),  // Use /ws not /ws/chat
+    url: wsUrl,
     onMessage: handleServerMessage,
     onConnect: () => {
-      console.log('[useChatState] WebSocket connected successfully');
+      console.log('[useChatState] WebSocket connected');
       setConnectionError('');
     },
     onDisconnect: () => {
@@ -208,10 +189,11 @@ export function useChatState() {
     },
     onError: (error) => {
       console.error('[useChatState] WebSocket error:', error);
-      setConnectionError('Connection failed. Please check your internet connection.');
+      setConnectionError('Connection failed.');
     },
   });
 
+  // Add user message to chat
   const addUserMessage = useCallback((content: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -223,6 +205,7 @@ export function useChatState() {
     setMessages(prev => [userMessage, ...prev]);
   }, [sessionId]);
 
+  // Send message through WebSocket
   const handleSendMessage = useCallback((content: string) => {
     if (!content.trim()) {
       console.warn('[useChatState] Cannot send empty message');
@@ -230,111 +213,43 @@ export function useChatState() {
     }
     
     if (!isConnected) {
-      setConnectionError('Not connected to server. Please wait for reconnection.');
+      setConnectionError('Not connected. Please wait...');
       return;
     }
 
+    // Add user message to UI
     addUserMessage(content);
     setIsThinking(true);
     setConnectionError('');
+    currentStreamId.current = ''; // Reset stream ID
 
-    // Use the Chat message type (capital C)
-    const wsMessage: WsClientMessage = {
-      type: 'Chat',
+    // Create WebSocket message with lowercase type and correct fields
+    const wsMessage: WsChatMessage = {
+      type: 'chat',  // lowercase 'chat' as backend expects
       content: content.trim(),
-      project_id: null,  // Add project support later
-      metadata: {}
+      project_id: null,  // correct field name
+      metadata: {}  // optional metadata
     };
-
-    console.log('[useChatState] Sending message:', { type: wsMessage.type, length: content.length });
-    send(wsMessage);
+    
+    console.log('[useChatState] Sending message:', wsMessage);
+    send(wsMessage as WsClientMessage);
   }, [isConnected, send, addUserMessage]);
 
+  // Load chat history (disabled for now)
   const loadChatHistory = useCallback(async (offset = 0) => {
-    console.log(`[useChatState] Loading chat history, offset: ${offset}`);
-    
-    if (offset === 0) setIsLoadingHistory(true); 
-    else setIsLoadingMore(true);
+    console.log('Loading chat history disabled for now');
+    // Add back later when stable
+  }, []);
 
-    try {
-      const url = getAPIUrl(`chat/history?limit=30&offset=${offset}&session_id=${sessionId}`);
-      console.log(`[useChatState] Fetching history from: ${url}`);
-      
-      if (offset === 0) {
-        debugConfig();
-      }
-      
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(10000)
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        const rawMessages = data.messages || data.history || [];
-        console.log(`[useChatState] Loaded ${rawMessages.length} messages`);
-        
-        const formatted: Message[] = rawMessages.map((msg: any) => {
-          const role = msg.role === 'user' || msg.sender === 'User' ? 'user' : 'mira';
-          const ts = typeof msg.timestamp === 'number' 
-            ? new Date(msg.timestamp * 1000)
-            : new Date(msg.timestamp);
-          
-          return {
-            id: msg.id || msg.message_id || `hist_${Date.now()}_${Math.random()}`,
-            role,
-            content: msg.content || msg.message || '',
-            timestamp: ts,
-            isStreaming: false,
-            session_id: msg.session_id || sessionId,
-            mood: msg.mood,
-            salience: msg.salience,
-            tags: msg.tags,
-            toolResults: msg.tool_results,
-            citations: msg.citations
-          } as Message;
-        });
-        
-        if (offset === 0) {
-          setMessages(formatted.reverse());
-          setHistoryOffset(formatted.length);
-        } else {
-          setMessages(prev => [...formatted.reverse(), ...prev]);
-          setHistoryOffset(prev => prev + formatted.length);
-        }
-        
-        setHasMoreHistory(formatted.length === 30);
-      } else {
-        const errorText = await res.text();
-        console.error(`[useChatState] Failed to load chat history: ${res.status} - ${errorText}`);
-        setConnectionError(`Failed to load history: ${res.status}`);
-      }
-    } catch (error) {
-      console.error('[useChatState] Error loading chat history:', error);
-      if (error instanceof Error && error.name === 'AbortError') {
-        setConnectionError('Request timeout. Please try again.');
-      } else {
-        setConnectionError('Failed to load chat history. Please check your connection.');
-      }
-    } finally {
-      setIsLoadingHistory(false);
-      setIsLoadingMore(false);
-    }
-  }, [sessionId]);
-
+  // Clear all messages
   const clearMessages = useCallback(() => {
-    console.log('[useChatState] Clearing all messages');
     setMessages([]);
     setHistoryOffset(0);
     setHasMoreHistory(true);
-    pendingToolResults.current = [];
-    pendingCitations.current = [];
     currentStreamId.current = '';
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (statusTimer.current) {
@@ -343,7 +258,8 @@ export function useChatState() {
     };
   }, []);
 
-  const state: ChatState = {
+  return {
+    // State
     messages,
     isThinking,
     isLoadingHistory,
@@ -354,9 +270,7 @@ export function useChatState() {
     connectionError,
     isConnected,
     sessionId,
-  };
-
-  const actions: ChatActions = {
+    // Actions
     handleSendMessage,
     addUserMessage,
     loadChatHistory,
@@ -365,6 +279,4 @@ export function useChatState() {
     clearMessages,
     send,
   };
-
-  return { ...state, ...actions };
 }

@@ -1,4 +1,3 @@
-// src/components/FileEditor.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   Save, 
@@ -9,8 +8,15 @@ import {
   Check,
   RefreshCw
 } from 'lucide-react';
-import { fileApi, FileContent } from '../services/fileApi';
-import { gitApi } from '../services/gitApi';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
+
+interface FileContent {
+  path: string;
+  content: string;
+  language?: string;
+  encoding?: string;
+}
 
 interface FileEditorProps {
   projectId: string;
@@ -19,6 +25,8 @@ interface FileEditorProps {
   isDark?: boolean;
   onClose?: () => void;
   onSave?: (content: string) => void;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
 export const FileEditor: React.FC<FileEditorProps> = ({
@@ -28,6 +36,8 @@ export const FileEditor: React.FC<FileEditorProps> = ({
   isDark = false,
   onClose,
   onSave,
+  send,
+  onGitResponse
 }) => {
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [editedContent, setEditedContent] = useState('');
@@ -40,8 +50,41 @@ export const FileEditor: React.FC<FileEditorProps> = ({
   const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
+    const handleGitData = (data: any) => {
+      if (data.type === 'file_content') {
+        setFileContent({
+          path: data.path,
+          content: data.content,
+          language: getLanguageFromPath(data.path)
+        });
+        setEditedContent(data.content);
+        setLoading(false);
+      } else if (data.type === 'file_updated') {
+        setFileContent(prev => prev ? { ...prev, content: editedContent } : null);
+        setSaveStatus('saved');
+        setSaving(false);
+        onSave?.(editedContent);
+        setTimeout(() => setShowSyncPrompt(true), 1000);
+      } else if (data.type === 'repo_synced') {
+        setShowSyncPrompt(false);
+        setSyncMessage('');
+        setSaving(false);
+      } else if (data.type === 'error') {
+        setError(data.message || 'An error occurred');
+        setSaving(false);
+        setLoading(false);
+        setSaveStatus('idle');
+      }
+    };
+
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
+    }
+  }, [onGitResponse, editedContent, onSave]);
+
+  useEffect(() => {
     loadFile();
-  }, [projectId, attachmentId, filePath]);
+  }, [projectId, attachmentId, filePath, send]);
 
   useEffect(() => {
     if (fileContent && editedContent !== fileContent.content) {
@@ -52,62 +95,58 @@ export const FileEditor: React.FC<FileEditorProps> = ({
     }
   }, [editedContent, fileContent]);
 
-  const loadFile = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const content = await fileApi.getFileContent(projectId, attachmentId, filePath);
-      setFileContent(content);
-      setEditedContent(content.content);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load file');
-    } finally {
+  const loadFile = () => {
+    if (!send) {
+      setError('WebSocket not connected');
       setLoading(false);
+      return;
     }
+    
+    setLoading(true);
+    setError(null);
+    send(createGitCommand('git.file', {
+      project_id: projectId,
+      attachment_id: attachmentId,
+      file_path: filePath
+    }));
   };
 
-  const handleSave = async () => {
-    try {
-      setSaving(true);
-      setSaveStatus('saving');
-      setError(null);
-      
-      await fileApi.updateFileContent(projectId, attachmentId, filePath, {
-        content: editedContent,
-      });
-      
-      setFileContent({ ...fileContent!, content: editedContent });
-      setSaveStatus('saved');
-      onSave?.(editedContent);
-      
-      // Show sync prompt after successful save
-      setTimeout(() => setShowSyncPrompt(true), 1000);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to save file');
-      setSaveStatus('idle');
-    } finally {
-      setSaving(false);
+  const handleSave = () => {
+    if (!send) {
+      setError('WebSocket not connected');
+      return;
     }
+
+    setSaving(true);
+    setSaveStatus('saving');
+    setError(null);
+    
+    send(createGitCommand('git.update_file', {
+      project_id: projectId,
+      attachment_id: attachmentId,
+      file_path: filePath,
+      content: editedContent,
+      commit_message: `Update ${filePath}`
+    }));
   };
 
-  const handleSync = async () => {
+  const handleSync = () => {
     if (!syncMessage.trim()) {
       setError('Please provide a commit message');
       return;
     }
 
-    try {
-      setSaving(true);
-      await gitApi.syncRepo(projectId, attachmentId, { 
-        commit_message: syncMessage 
-      });
-      setShowSyncPrompt(false);
-      setSyncMessage('');
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to sync changes');
-    } finally {
-      setSaving(false);
+    if (!send) {
+      setError('WebSocket not connected');
+      return;
     }
+
+    setSaving(true);
+    send(createGitCommand('git.sync', {
+      project_id: projectId,
+      attachment_id: attachmentId,
+      message: syncMessage
+    }));
   };
 
   const getLanguageFromPath = (path: string): string => {
@@ -146,7 +185,6 @@ export const FileEditor: React.FC<FileEditorProps> = ({
 
   return (
     <div className={`flex flex-col h-full ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
-      {/* Header */}
       <div className={`flex items-center justify-between px-4 py-3 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex items-center gap-2">
           <FileText className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
@@ -170,7 +208,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
-            disabled={!isDirty || saving}
+            disabled={!isDirty || saving || !send}
             className={`px-3 py-1.5 text-sm rounded flex items-center gap-1 ${
               isDark 
                 ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50' 
@@ -199,7 +237,6 @@ export const FileEditor: React.FC<FileEditorProps> = ({
         </div>
       </div>
 
-      {/* Error message */}
       {error && (
         <div className={`mx-4 mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
           isDark 
@@ -211,7 +248,6 @@ export const FileEditor: React.FC<FileEditorProps> = ({
         </div>
       )}
 
-      {/* Editor */}
       <div className="flex-1 overflow-hidden">
         <textarea
           value={editedContent}
@@ -226,7 +262,6 @@ export const FileEditor: React.FC<FileEditorProps> = ({
         />
       </div>
 
-      {/* Sync prompt */}
       {showSyncPrompt && (
         <div className={`border-t p-4 ${
           isDark 
@@ -253,7 +288,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
               <div className="flex gap-2">
                 <button
                   onClick={handleSync}
-                  disabled={saving || !syncMessage.trim()}
+                  disabled={saving || !syncMessage.trim() || !send}
                   className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
                 >
                   {saving && <Loader2 className="w-3 h-3 animate-spin" />}

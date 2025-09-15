@@ -1,13 +1,29 @@
-// src/components/GitRepoManager.tsx
 import React, { useState, useEffect } from 'react';
 import { GitBranch, RefreshCw, Plus, ExternalLink, Check, AlertCircle } from 'lucide-react';
-import { gitApi, GitRepoAttachment } from '../services/gitApi';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
+
+interface GitRepoAttachment {
+  id: string;
+  project_id: string;
+  repo_url: string;
+  local_path: string;
+  import_status: 'Pending' | 'Cloned' | 'Imported';
+  last_imported_at?: string;
+  last_sync_at?: string;
+}
 
 interface GitRepoManagerProps {
   projectId: string;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
-export const GitRepoManager: React.FC<GitRepoManagerProps> = ({ projectId }) => {
+export const GitRepoManager: React.FC<GitRepoManagerProps> = ({ 
+  projectId,
+  send,
+  onGitResponse
+}) => {
   const [repos, setRepos] = useState<GitRepoAttachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAttachForm, setShowAttachForm] = useState(false);
@@ -17,57 +33,73 @@ export const GitRepoManager: React.FC<GitRepoManagerProps> = ({ projectId }) => 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const handleGitData = (data: any) => {
+      setLoading(false);
+      
+      if (data.type === 'repo_list') {
+        setRepos(data.repos || []);
+      } else if (data.type === 'repo_attached') {
+        setRepoUrl('');
+        setShowAttachForm(false);
+        loadRepos();
+      } else if (data.type === 'repo_synced') {
+        setSyncMessage('');
+        setSelectedRepo(null);
+        loadRepos();
+      } else if (data.type === 'error') {
+        setError(data.message || 'An error occurred');
+      }
+    };
+
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
+    }
+  }, [onGitResponse]);
+
+  useEffect(() => {
     loadRepos();
-  }, [projectId]);
+  }, [projectId, send]);
 
-  const loadRepos = async () => {
-    try {
-      setLoading(true);
-      const response = await gitApi.listRepos(projectId);
-      setRepos(response.repos);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load repositories');
-    } finally {
-      setLoading(false);
+  const loadRepos = () => {
+    if (!send) {
+      console.warn('Cannot load repos: WebSocket not connected');
+      return;
     }
+    setLoading(true);
+    setError(null);
+    send(createGitCommand('git.list_repos', { project_id: projectId }));
   };
 
-  const handleAttachRepo = async (e: React.FormEvent) => {
+  const handleAttachRepo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!repoUrl.trim()) return;
+    if (!repoUrl.trim() || !send) return;
 
-    try {
-      setLoading(true);
-      setError(null);
-      await gitApi.attachRepo(projectId, { repo_url: repoUrl });
-      setRepoUrl('');
-      setShowAttachForm(false);
-      await loadRepos();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to attach repository');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    setError(null);
+    send(createGitCommand('git.attach', { 
+      project_id: projectId,
+      repo_url: repoUrl 
+    }));
   };
 
-  const handleSyncRepo = async (attachmentId: string) => {
+  const handleSyncRepo = (attachmentId: string) => {
     if (!syncMessage.trim()) {
       setError('Please provide a commit message');
       return;
     }
 
-    try {
-      setLoading(true);
-      setError(null);
-      await gitApi.syncRepo(projectId, attachmentId, { commit_message: syncMessage });
-      setSyncMessage('');
-      setSelectedRepo(null);
-      await loadRepos();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to sync repository');
-    } finally {
-      setLoading(false);
+    if (!send) {
+      setError('WebSocket not connected');
+      return;
     }
+
+    setLoading(true);
+    setError(null);
+    send(createGitCommand('git.sync', { 
+      project_id: projectId,
+      attachment_id: attachmentId,
+      message: syncMessage 
+    }));
   };
 
   const getStatusIcon = (status: string) => {
@@ -119,7 +151,7 @@ export const GitRepoManager: React.FC<GitRepoManagerProps> = ({ projectId }) => 
             />
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !send}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Attaching...' : 'Attach'}
@@ -189,7 +221,7 @@ export const GitRepoManager: React.FC<GitRepoManagerProps> = ({ projectId }) => 
                     />
                     <button
                       onClick={() => handleSyncRepo(repo.id)}
-                      disabled={loading}
+                      disabled={loading || !send}
                       className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                     >
                       {loading ? 'Syncing...' : 'Sync'}

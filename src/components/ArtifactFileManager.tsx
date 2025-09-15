@@ -1,15 +1,28 @@
 // src/components/ArtifactFileManager.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileEditor } from './FileEditor';
 import { GitFileBrowser } from './GitFileBrowser';
-import { gitApi, GitRepoAttachment } from '../services/gitApi';
 import { Code2, FolderOpen, X } from 'lucide-react';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
+
+interface GitRepoAttachment {
+  id: string;
+  project_id: string;
+  repo_url: string;
+  local_path: string;
+  import_status: 'Pending' | 'Cloned' | 'Imported';
+  last_imported_at?: string;
+  last_sync_at?: string;
+}
 
 interface ArtifactFileManagerProps {
   projectId: string;
   isDark?: boolean;
   onFileUpdate?: (filePath: string, content: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
 interface ActiveFile {
@@ -23,25 +36,39 @@ export const ArtifactFileManager: React.FC<ArtifactFileManagerProps> = ({
   isDark = false,
   onFileUpdate,
   onEditingChange,
+  send,
+  onGitResponse
 }) => {
   const [repos, setRepos] = useState<GitRepoAttachment[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<ActiveFile | null>(null);
 
-  React.useEffect(() => {
-    loadRepos();
-  }, [projectId]);
-
-  const loadRepos = async () => {
-    try {
-      const response = await gitApi.listRepos(projectId);
-      setRepos(response.repos.filter(r => r.import_status === 'Imported'));
-      if (response.repos.length > 0 && !selectedRepo) {
-        setSelectedRepo(response.repos[0].id);
+  useEffect(() => {
+    const handleGitData = (data: any) => {
+      if (data.type === 'repo_list') {
+        const importedRepos = (data.repos || []).filter((r: GitRepoAttachment) => r.import_status === 'Imported');
+        setRepos(importedRepos);
+        if (importedRepos.length > 0 && !selectedRepo) {
+          setSelectedRepo(importedRepos[0].id);
+        }
       }
-    } catch (error) {
-      console.error('Failed to load repos:', error);
+    };
+
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
     }
+  }, [onGitResponse, selectedRepo]);
+
+  useEffect(() => {
+    loadRepos();
+  }, [projectId, send]);
+
+  const loadRepos = () => {
+    if (!send) {
+      console.warn('Cannot load repos: WebSocket not connected');
+      return;
+    }
+    send(createGitCommand('git.list_repos', { project_id: projectId }));
   };
 
   const handleFileSelect = (filePath: string) => {
@@ -64,7 +91,6 @@ export const ArtifactFileManager: React.FC<ArtifactFileManagerProps> = ({
     }
   };
 
-  // If there's an active file being edited, show the editor
   if (activeFile) {
     return (
       <div className="h-full flex flex-col">
@@ -107,13 +133,14 @@ export const ArtifactFileManager: React.FC<ArtifactFileManagerProps> = ({
               setActiveFile(null);
               onEditingChange?.(false);
             }}
+            send={send}
+            onGitResponse={onGitResponse}
           />
         </div>
       </div>
     );
   }
 
-  // Otherwise show the file browser
   return (
     <div className="h-full flex flex-col">
       {repos.length === 0 ? (
@@ -150,6 +177,8 @@ export const ArtifactFileManager: React.FC<ArtifactFileManagerProps> = ({
                 repoId={selectedRepo}
                 isDark={isDark}
                 onFileSelect={handleFileSelect}
+                send={send}
+                onGitResponse={onGitResponse}
               />
             )}
           </div>

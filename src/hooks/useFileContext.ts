@@ -1,9 +1,6 @@
-// src/hooks/useFileContext.ts  
-// PHASE 2: Artifact and file management (~100 lines)
-// Responsibilities: Artifacts, file context, session management
-
 import { useState, useCallback } from 'react';
-import { API_BASE_URL } from '../services/config';
+import { createProjectCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
 
 interface SessionArtifact {
   id: string;
@@ -27,47 +24,56 @@ export interface FileContextActions {
   handleArtifactClick: (artifactId: string) => void;
   setShowArtifacts: (show: boolean) => void;
   setSelectedArtifactId: (id: string | null) => void;
-  loadArtifacts: (projectId: string) => Promise<void>;
+  loadArtifacts: (projectId: string) => void;
   clearArtifacts: () => void;
+  handleArtifactResponse: (data: any) => void;
 }
 
-export function useFileContext() {
+export function useFileContext(send?: (message: WsClientMessage) => void) {
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [artifactCount, setArtifactCount] = useState(0);
   const [sessionArtifacts, setSessionArtifacts] = useState<SessionArtifact[]>([]);
+
+  const handleArtifactResponse = useCallback((data: any) => {
+    if (data.type === 'artifact_list') {
+      const artifacts = data.artifacts || [];
+      setArtifactCount(artifacts.length);
+      setSessionArtifacts(artifacts);
+    } else if (data.type === 'artifact_created') {
+      setSessionArtifacts(prev => [...prev, data.artifact]);
+      setArtifactCount(prev => prev + 1);
+    } else if (data.type === 'artifact_updated') {
+      setSessionArtifacts(prev => prev.map(a => 
+        a.id === data.artifact.id ? data.artifact : a
+      ));
+    } else if (data.type === 'artifact_deleted') {
+      setSessionArtifacts(prev => prev.filter(a => a.id !== data.artifact_id));
+      setArtifactCount(prev => Math.max(0, prev - 1));
+      if (selectedArtifactId === data.artifact_id) {
+        setSelectedArtifactId(null);
+      }
+    }
+  }, [selectedArtifactId]);
 
   const handleArtifactClick = useCallback((artifactId: string) => {
     setSelectedArtifactId(artifactId);
     setShowArtifacts(true);
   }, []);
 
-  const loadArtifacts = useCallback(async (projectId: string) => {
+  const loadArtifacts = useCallback((projectId: string) => {
     if (!projectId) {
-      setArtifactCount(0);
-      setShowArtifacts(false);
-      setSessionArtifacts([]);
+      clearArtifacts();
       return;
     }
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/artifacts`);
-      if (response.ok) {
-        const data = await response.json();
-        const artifacts = data.artifacts || [];
-        setArtifactCount(artifacts.length);
-        setSessionArtifacts(artifacts);
-      } else {
-        console.error('Failed to fetch artifacts:', response.statusText);
-        setArtifactCount(0);
-        setSessionArtifacts([]);
-      }
-    } catch (error) {
-      console.error('Failed to fetch artifacts:', error);
-      setArtifactCount(0);
-      setSessionArtifacts([]);
+    if (!send) {
+      console.warn('Cannot load artifacts: WebSocket not connected');
+      return;
     }
-  }, []);
+
+    send(createProjectCommand('artifact.list', { project_id: projectId }));
+  }, [send]);
 
   const clearArtifacts = useCallback(() => {
     setArtifactCount(0);
@@ -89,6 +95,7 @@ export function useFileContext() {
     setSelectedArtifactId,
     loadArtifacts,
     clearArtifacts,
+    handleArtifactResponse,
   };
 
   return { ...state, ...actions };

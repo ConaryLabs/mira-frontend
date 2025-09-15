@@ -1,23 +1,20 @@
-// src/services/config.ts
-
 const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 export const API_BASE_URL = isDevelopment 
-  ? 'http://localhost:3001'  // Your backend runs on 3001
-  : '';                       // Use relative URLs in production
+  ? 'http://localhost:3001'
+  : '';
 
-export const getWebSocketUrl = (path: string = '/ws') => {  // Changed from /ws/chat to /ws
+export const getWebSocketUrl = (path: string = '/ws') => {
   console.log(`[Config] Getting WebSocket URL for path: ${path}`);
   console.log(`[Config] Current hostname: ${window.location.hostname}`);
   console.log(`[Config] Is development: ${isDevelopment}`);
   
   if (isDevelopment) {
-    const url = `ws://localhost:3001${path}`;  // Changed from 8080 to 3001
+    const url = `ws://localhost:3001${path}`;
     console.log(`[Config] Development WebSocket URL: ${url}`);
     return url;
   }
   
-  // Production mode - use current host with correct protocol
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   const url = `${protocol}//${host}${path}`;
@@ -33,7 +30,6 @@ export const getAPIUrl = (endpoint: string) => {
     console.log(`[Config] Development API URL: ${url}`);
     return url;
   } else {
-    // In production, nginx will proxy /api to your backend
     const url = `/api/${cleanEndpoint}`;
     console.log(`[Config] Production API URL: ${url}`);
     return url;
@@ -47,7 +43,7 @@ export const debugConfig = () => {
     hostname: window.location.hostname,
     protocol: window.location.protocol,
     host: window.location.host,
-    webSocketUrl: getWebSocketUrl('/ws'),  // Updated path
+    webSocketUrl: getWebSocketUrl('/ws'),
     apiUrl: getAPIUrl('chat/history')
   });
 };

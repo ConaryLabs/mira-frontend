@@ -1,4 +1,3 @@
-// src/components/ProjectSidebar.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FolderOpen, 
@@ -12,6 +11,8 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import { ProjectGitSection } from './ProjectGitSection';
+import { createProjectCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
 
 interface Project {
   id: string;
@@ -28,6 +29,9 @@ interface ProjectSidebarProps {
   isDark: boolean;
   isOpen: boolean;
   onClose: () => void;
+  send?: (message: WsClientMessage) => void;
+  onProjectResponse?: (handler: (data: any) => void) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
 const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
@@ -37,7 +41,10 @@ const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
   onProjectCreate,
   isDark,
   isOpen,
-  onClose
+  onClose,
+  send,
+  onProjectResponse,
+  onGitResponse
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -45,6 +52,24 @@ const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
   const [editingName, setEditingName] = useState('');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleProjectData = (data: any) => {
+      if (data.type === 'project_updated') {
+        setEditingProjectId(null);
+        setEditingName('');
+      } else if (data.type === 'project_deleted') {
+        if (currentProjectId === data.project_id) {
+          onProjectSelect('');
+        }
+        setActiveMenu(null);
+      }
+    };
+
+    if (onProjectResponse) {
+      onProjectResponse(handleProjectData);
+    }
+  }, [onProjectResponse, currentProjectId, onProjectSelect]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -64,49 +89,28 @@ const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     setIsCreating(false);
   };
 
-  const handleRenameProject = async (projectId: string) => {
-    if (!editingName.trim()) return;
+  const handleRenameProject = (projectId: string) => {
+    if (!editingName.trim() || !send) return;
 
-    try {
-      const response = await fetch(`/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editingName }),
-      });
-      
-      if (response.ok) {
-        // Parent component should refresh projects
-        window.location.reload(); // Quick fix - parent should handle this
-      }
-    } catch (error) {
-      console.error('Failed to rename project:', error);
-    }
-    
-    setEditingProjectId(null);
-    setEditingName('');
+    send(createProjectCommand('project.update', {
+      id: projectId,
+      name: editingName
+    }));
   };
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleDeleteProject = (projectId: string) => {
     if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
       return;
     }
 
-    try {
-      const response = await fetch(`/api/projects/${projectId}`, {
-        method: 'DELETE',
-      });
-      
-      if (response.ok) {
-        if (currentProjectId === projectId) {
-          onProjectSelect('');
-        }
-        window.location.reload(); // Quick fix - parent should handle this
-      }
-    } catch (error) {
-      console.error('Failed to delete project:', error);
+    if (!send) {
+      console.warn('Cannot delete project: WebSocket not connected');
+      return;
     }
-    
-    setActiveMenu(null);
+
+    send(createProjectCommand('project.delete', {
+      id: projectId
+    }));
   };
 
   if (!isOpen) return null;
@@ -272,8 +276,9 @@ const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
                 <ProjectGitSection 
                   projectId={project.id}
                   isDark={isDark}
+                  send={send}
+                  onGitResponse={onGitResponse}
                   onFileRequest={(repoId, filePath) => {
-                    // This will be connected to the file browser
                     console.log('File requested:', repoId, filePath);
                   }}
                 />

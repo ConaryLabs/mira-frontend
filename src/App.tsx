@@ -1,10 +1,14 @@
-// src/App.tsx
+import React from 'react';
 import { ChatContainer } from './components/ChatContainer';
-import './index.css';
 
 function App() {
-  console.log('App component is rendering!');
-  return <ChatContainer />;
+  console.log('App mounting...');
+  
+  return (
+    <div className="h-screen w-screen overflow-hidden">
+      <ChatContainer />
+    </div>
+  );
 }
 
 export default App;

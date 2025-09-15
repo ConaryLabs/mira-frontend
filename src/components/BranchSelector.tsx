@@ -1,13 +1,13 @@
 // src/components/BranchSelector.tsx
-// Git branch management component for Phase 3
-
 import React, { useState, useEffect } from 'react';
 import { GitBranch, Plus, Check, RefreshCw } from 'lucide-react';
-import { API_BASE_URL } from '../services/config';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
 
-interface GitBranch {
+interface GitBranchInfo {
   name: string;
   is_current: boolean;
+  is_head?: boolean;
   commit_hash?: string;
   commit_message?: string;
 }
@@ -17,101 +17,101 @@ interface BranchSelectorProps {
   attachmentId: string;
   onBranchChange?: (branchName: string) => void;
   isDark: boolean;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
-export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark }: BranchSelectorProps) {
-  const [branches, setBranches] = useState<GitBranch[]>([]);
+export function BranchSelector({ 
+  projectId, 
+  attachmentId, 
+  onBranchChange, 
+  isDark,
+  send,
+  onGitResponse
+}: BranchSelectorProps) {
+  const [branches, setBranches] = useState<GitBranchInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const loadBranches = async () => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/git/branches/${attachmentId}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch branches: ${response.statusText}`);
-      }
-      const data = await response.json();
-      setBranches(data.branches || []);
-    } catch (err) {
-      console.error('Failed to load branches:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load branches');
-    } finally {
+  useEffect(() => {
+    const handleGitData = (data: any) => {
       setIsLoading(false);
-    }
-  };
-
-  const switchBranch = async (branchName: string) => {
-    setError(null);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/git/branch/${attachmentId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ branch_name: branchName }),
-      });
       
-      if (!response.ok) {
-        throw new Error(`Failed to switch branch: ${response.statusText}`);
+      if (data.type === 'branch_list') {
+        setBranches(data.branches || []);
+      } else if (data.type === 'branch_switched') {
+        loadBranches();
+        if (data.branch_name) {
+          onBranchChange?.(data.branch_name);
+        }
+      } else if (data.type === 'branch_created') {
+        setNewBranchName('');
+        setIsCreating(false);
+        loadBranches();
+        if (data.branch_name) {
+          onBranchChange?.(data.branch_name);
+        }
+      } else if (data.type === 'error') {
+        setError(data.message || 'An error occurred');
       }
-      
-      // Reload branches to update current status
-      await loadBranches();
-      onBranchChange?.(branchName);
-    } catch (err) {
-      console.error('Failed to switch branch:', err);
-      setError(err instanceof Error ? err.message : 'Failed to switch branch');
-    }
-  };
+    };
 
-  const createBranch = async () => {
-    if (!newBranchName.trim()) return;
-    
-    setError(null);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/git/branch/${attachmentId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          branch_name: newBranchName.trim(),
-          create_new: true 
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create branch: ${response.statusText}`);
-      }
-      
-      setNewBranchName('');
-      setIsCreating(false);
-      await loadBranches();
-      onBranchChange?.(newBranchName.trim());
-    } catch (err) {
-      console.error('Failed to create branch:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create branch');
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
     }
-  };
+  }, [onGitResponse, onBranchChange]);
 
   useEffect(() => {
-    if (projectId && attachmentId) {
+    if (projectId && attachmentId && send) {
       loadBranches();
     }
-  }, [projectId, attachmentId]);
+  }, [projectId, attachmentId, send]);
 
-  const currentBranch = branches.find(b => b.is_current);
+  const loadBranches = () => {
+    if (!send) {
+      console.warn('Cannot load branches: WebSocket not connected');
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    send(createGitCommand('git.branches', { 
+      project_id: projectId,
+      attachment_id: attachmentId
+    }));
+  };
+
+  const switchBranch = (branchName: string) => {
+    if (!send) {
+      setError('WebSocket not connected');
+      return;
+    }
+    
+    setError(null);
+    send(createGitCommand('git.switch_branch', {
+      project_id: projectId,
+      attachment_id: attachmentId,
+      branch_name: branchName
+    }));
+  };
+
+  const createBranch = () => {
+    if (!newBranchName.trim() || !send) return;
+    
+    setError(null);
+    send(createGitCommand('git.create_branch', {
+      project_id: projectId,
+      attachment_id: attachmentId,
+      branch_name: newBranchName.trim()
+    }));
+  };
+
+  const currentBranch = branches.find(b => b.is_current || b.is_head);
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <GitBranch className="w-5 h-5" />
@@ -119,7 +119,7 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
         </div>
         <button
           onClick={loadBranches}
-          disabled={isLoading}
+          disabled={isLoading || !send}
           className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
           title="Refresh branches"
         >
@@ -127,14 +127,12 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
         </button>
       </div>
 
-      {/* Error display */}
       {error && (
         <div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-sm rounded">
           {error}
         </div>
       )}
 
-      {/* Current branch */}
       {currentBranch && (
         <div className="p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded-lg">
           <div className="flex items-center space-x-2">
@@ -152,15 +150,15 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
         </div>
       )}
 
-      {/* Branch list */}
       <div className="space-y-1 max-h-60 overflow-y-auto">
         {branches
-          .filter(branch => !branch.is_current)
+          .filter(branch => !branch.is_current && !branch.is_head)
           .map((branch) => (
             <button
               key={branch.name}
               onClick={() => switchBranch(branch.name)}
-              className="w-full text-left p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors"
+              disabled={!send}
+              className="w-full text-left p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
             >
               <div className="flex items-center space-x-2">
                 <GitBranch className="w-4 h-4 text-gray-400" />
@@ -175,7 +173,6 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
           ))}
       </div>
 
-      {/* Create new branch */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
         {isCreating ? (
           <div className="space-y-2">
@@ -198,7 +195,7 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
             <div className="flex space-x-2">
               <button
                 onClick={createBranch}
-                disabled={!newBranchName.trim()}
+                disabled={!newBranchName.trim() || !send}
                 className="flex-1 px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Create
@@ -217,7 +214,8 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
         ) : (
           <button
             onClick={() => setIsCreating(true)}
-            className="w-full flex items-center justify-center space-x-2 p-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            disabled={!send}
+            className="w-full flex items-center justify-center space-x-2 p-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             <span>Create new branch</span>
@@ -225,7 +223,6 @@ export function BranchSelector({ projectId, attachmentId, onBranchChange, isDark
         )}
       </div>
 
-      {/* Loading state */}
       {isLoading && (
         <div className="flex items-center justify-center py-4">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>

@@ -1,65 +1,104 @@
-// src/components/ProjectGitSection.tsx
 import React, { useState, useEffect } from 'react';
 import { GitBranch, Plus, RefreshCw, Check, Clock } from 'lucide-react';
-import { gitApi, GitRepoAttachment } from '../services/gitApi';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
+
+interface GitRepoAttachment {
+  id: string;
+  project_id: string;
+  repo_url: string;
+  local_path: string;
+  import_status: 'Pending' | 'Cloned' | 'Imported';
+  last_imported_at?: string;
+  last_sync_at?: string;
+}
 
 interface ProjectGitSectionProps {
   projectId: string;
   onFileRequest?: (repoId: string, filePath: string) => void;
   isDark?: boolean;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (data: any) => void;
 }
 
 export const ProjectGitSection: React.FC<ProjectGitSectionProps> = ({ 
   projectId,
   onFileRequest,
-  isDark 
+  isDark,
+  send,
+  onGitResponse
 }) => {
   const [repos, setRepos] = useState<GitRepoAttachment[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleGitData = (data: any) => {
+      if (data.type === 'repo_list') {
+        setRepos(data.repos || []);
+        
+        if (data.repos?.every((r: GitRepoAttachment) => r.import_status === 'Imported')) {
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            setPollInterval(null);
+          }
+        }
+      } else if (data.type === 'repo_attached') {
+        loadRepos();
+        startPolling();
+      }
+    };
+
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
+    }
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pollInterval, onGitResponse]);
 
   useEffect(() => {
     loadRepos();
-  }, [projectId]);
+  }, [projectId, send]);
 
-  const loadRepos = async () => {
-    try {
-      const response = await gitApi.listRepos(projectId);
-      setRepos(response.repos);
-    } catch (error) {
-      console.error('Failed to load repos:', error);
+  const loadRepos = () => {
+    if (!send) {
+      console.warn('Cannot load repos: WebSocket not connected');
+      return;
     }
+    send(createGitCommand('git.list_repos', { project_id: projectId }));
   };
 
-  const handleAttach = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim()) return;
-
-    try {
-      setLoading(true);
-      await gitApi.attachRepo(projectId, { repo_url: repoUrl });
-      setRepoUrl('');
-      setShowAddForm(false);
-      
-      // Poll for status updates
-      const pollInterval = setInterval(async () => {
-        const response = await gitApi.listRepos(projectId);
-        setRepos(response.repos);
-        
-        // Stop polling when all repos are imported
-        if (response.repos.every(r => r.import_status === 'Imported')) {
-          clearInterval(pollInterval);
-        }
-      }, 3000);
-      
-      // Initial load
-      await loadRepos();
-    } catch (error) {
-      console.error('Failed to attach repo:', error);
-    } finally {
-      setLoading(false);
+  const startPolling = () => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
     }
+
+    const interval = setInterval(() => {
+      loadRepos();
+    }, 3000);
+    
+    setPollInterval(interval);
+  };
+
+  const handleAttach = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repoUrl.trim() || !send) return;
+
+    setLoading(true);
+    send(createGitCommand('git.attach', { 
+      project_id: projectId,
+      repo_url: repoUrl 
+    }));
+    
+    setRepoUrl('');
+    setShowAddForm(false);
+    setLoading(false);
   };
 
   const getStatusIcon = (status: string) => {
@@ -110,7 +149,7 @@ export const ProjectGitSection: React.FC<ProjectGitSectionProps> = ({
           <div className="flex gap-2 mt-2">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !send}
               className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
             >
               {loading ? 'Attaching...' : 'Attach'}

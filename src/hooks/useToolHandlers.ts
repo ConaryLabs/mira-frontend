@@ -109,7 +109,6 @@ export function useToolHandlers(
     const wsMessage: WsClientMessage = {
       type: 'chat',
       content: content.trim(),
-      session_id: sessionId,
       project_id: currentProjectId,
       metadata
     };

@@ -1,4 +1,3 @@
-// src/components/GitFileBrowser.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   File, 
@@ -10,7 +9,8 @@ import {
   Image,
   GitBranch
 } from 'lucide-react';
-import { fileApi } from '../services/fileApi';
+import { createGitCommand } from '../types/websocket';
+import type { WsClientMessage } from '../types/websocket';
 
 interface FileNode {
   name: string;
@@ -25,35 +25,50 @@ interface GitFileBrowserProps {
   repoId: string;
   isDark?: boolean;
   onFileSelect: (filePath: string) => void;
+  send?: (message: WsClientMessage) => void;
+  onGitResponse?: (handler: (data: any) => void) => void;
 }
 
 export const GitFileBrowser: React.FC<GitFileBrowserProps> = ({ 
   projectId, 
   repoId,
   isDark = false,
-  onFileSelect 
+  onFileSelect,
+  send,
+  onGitResponse
 }) => {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   useEffect(() => {
-    loadFiles();
-  }, [repoId]);
+    const handleGitData = (data: any) => {
+      if (data.type === 'file_tree') {
+        setFiles(data.tree || []);
+        setLoading(false);
+      }
+    };
 
-  const loadFiles = async () => {
-    try {
-      setLoading(true);
-      // Fetch the actual file tree from the backend
-      const response = await fileApi.getFileTree(projectId, repoId);
-      setFiles(response.files || []);
-    } catch (error) {
-      console.error('Failed to load files:', error);
-      // If the endpoint doesn't exist yet, show a message
-      setFiles([]);
-    } finally {
-      setLoading(false);
+    if (onGitResponse) {
+      onGitResponse(handleGitData);
     }
+  }, [onGitResponse]);
+
+  useEffect(() => {
+    loadFiles();
+  }, [repoId, projectId, send]);
+
+  const loadFiles = () => {
+    if (!send) {
+      console.warn('Cannot load files: WebSocket not connected');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    send(createGitCommand('git.tree', { 
+      project_id: projectId,
+      attachment_id: repoId
+    }));
   };
 
   const toggleDirectory = (path: string) => {
@@ -153,8 +168,17 @@ export const GitFileBrowser: React.FC<GitFileBrowserProps> = ({
         </div>
         <div className="flex-1 flex items-center justify-center p-4 text-center">
           <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-            <p className="mb-2">File browsing endpoint not yet implemented.</p>
-            <p className="text-xs">The backend needs a `/projects/:id/git/:id/tree` endpoint.</p>
+            {!send ? (
+              <>
+                <p className="mb-2">WebSocket not connected.</p>
+                <p className="text-xs">Please wait for connection to be established.</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-2">No files loaded.</p>
+                <p className="text-xs">Repository may be empty or still importing.</p>
+              </>
+            )}
           </div>
         </div>
       </div>
