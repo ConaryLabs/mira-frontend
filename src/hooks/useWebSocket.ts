@@ -1,14 +1,7 @@
 // src/hooks/useWebSocket.ts
-// PHASE 1: Enhanced WebSocket hook with session tracking and all new message types
-// Key improvements:
-// 1. Proper session ID handling for thread continuity
-// 2. Support for all new WebSocket message types
-// 3. Enhanced error handling and connection management
-// 4. Message queuing for reliability
-// 5. Heartbeat and reconnection logic
 
 import { useRef, useCallback, useEffect, useState } from 'react';
-import type { WsServerMessage, WsClientMessage } from '../types/websocket';
+import type { WsServerMessage, WsClientMessage, createStatusMessage } from '../types/websocket';
 
 interface UseWebSocketOptions {
   url: string;
@@ -44,8 +37,6 @@ export function useWebSocket({
   const shouldReconnect = useRef(true);
   const isConnecting = useRef(false);
   const messageQueue = useRef<WsClientMessage[]>([]);
-  
-  // Track if we've initialized to prevent multiple connections
   const hasInitialized = useRef(false);
 
   const getReconnectDelay = useCallback(() => {
@@ -77,8 +68,14 @@ export function useWebSocket({
     heartbeatTimeout.current = setTimeout(() => {
       if (ws.current?.readyState === WebSocket.OPEN) {
         try {
-          ws.current.send(JSON.stringify({ type: 'heartbeat' }));
-          startHeartbeat(); // Schedule next heartbeat
+          // Send ping as Status message for your backend
+          const pingMessage: WsClientMessage = {
+            type: 'Status',
+            message: 'ping'
+          };
+          ws.current.send(JSON.stringify(pingMessage));
+          console.log('[WS] Ping sent');
+          startHeartbeat();
         } catch (error) {
           console.error('[WS] Heartbeat failed:', error);
         }
@@ -114,7 +111,6 @@ export function useWebSocket({
     isConnecting.current = true;
     console.log('[WS] Connecting to:', url);
 
-    // Connection timeout
     connectTimeout.current = setTimeout(() => {
       if (ws.current && ws.current.readyState === WebSocket.CONNECTING) {
         console.log('[WS] Connection timeout');
@@ -143,42 +139,33 @@ export function useWebSocket({
         try {
           const message: WsServerMessage = JSON.parse(event.data);
           
-          // Enhanced logging for debugging
-          const messageInfo = {
+          // Log received messages
+          console.log('[WS] Message received:', {
             type: message.type,
-            hasContent: 'content' in message ? !!(message as any).content : false,
-            contentLength: 'content' in message ? (message as any).content?.length : 0,
             timestamp: new Date().toISOString()
-          };
+          });
           
-          console.log('[WS] Message received:', messageInfo);
-          
-          // Log specific message type details
+          // Log specific message details
           switch (message.type) {
-            case 'chunk':
+            case 'stream_chunk':
               const chunk = message as any;
-              console.log(`[WS] Chunk preview: "${chunk.content?.substring(0, 50)}..."`);
+              console.log(`[WS] Stream chunk: "${chunk.text?.substring(0, 50)}..."`);
               break;
-            case 'tool_call_started':
-            case 'tool_call_completed':
-            case 'tool_call_failed':
-              console.log(`[WS] Tool event: ${message.type}`, {
-                tool_type: (message as any).tool_type,
-                tool_id: (message as any).tool_id
-              });
-              break;
-            case 'image_generated':
-              console.log(`[WS] Image generated:`, {
-                prompt: (message as any).prompt?.substring(0, 50) + '...',
-                url_count: (message as any).image_urls?.length || 1
-              });
+            case 'stream_end':
+              console.log('[WS] Stream ended');
               break;
             case 'complete':
-              console.log(`[WS] Complete with metadata:`, {
+              console.log('[WS] Complete with metadata:', {
                 mood: (message as any).mood,
                 salience: (message as any).salience,
-                tags: (message as any).tags?.length || 0
+                tags: (message as any).tags
               });
+              break;
+            case 'pong':
+              console.log('[WS] Pong received');
+              return; // Don't forward pong to message handler
+            case 'connection_ready':
+              console.log('[WS] Connection ready received');
               break;
           }
           
@@ -205,8 +192,7 @@ export function useWebSocket({
         clearTimeouts();
         onDisconnect?.();
         
-        // Attempt reconnection if it wasn't a clean closure
-        if (shouldReconnect.current && event.code !== 1000) {
+        if (shouldReconnect.current && event.code !== 1000 && event.code !== 1001) {
           attemptReconnect();
         }
       };
@@ -216,27 +202,21 @@ export function useWebSocket({
       isConnecting.current = false;
       attemptReconnect();
     }
-  }, [url, onMessage, onConnect, onDisconnect, onError, connectionTimeout, startHeartbeat, processMessageQueue, attemptReconnect]);
+  }, [url, onMessage, onConnect, onDisconnect, onError, connectionTimeout, startHeartbeat, processMessageQueue, attemptReconnect, clearTimeouts]);
 
-  // Enhanced send function with proper type support and queuing
   const send = useCallback((message: WsClientMessage) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       try {
-        // Enhanced logging for sent messages
         console.log('[WS] Sending message:', {
           type: message.type,
-          hasContent: !!message.content,
-          contentLength: message.content?.length || 0,
-          session_id: message.session_id,
-          project_id: message.project_id,
-          has_metadata: !!message.metadata
+          hasContent: 'content' in message && !!message.content,
+          contentLength: 'content' in message ? (message as any).content?.length : undefined
         });
         
         ws.current.send(JSON.stringify(message));
         return true;
       } catch (error) {
         console.error('[WS] Failed to send message:', error);
-        // Add to queue for retry
         messageQueue.current.push(message);
         return false;
       }
@@ -247,7 +227,6 @@ export function useWebSocket({
     }
   }, []);
 
-  // Connection management
   const disconnect = useCallback(() => {
     console.log('[WS] Manual disconnect requested');
     shouldReconnect.current = false;
@@ -268,15 +247,12 @@ export function useWebSocket({
     shouldReconnect.current = true;
     reconnectAttempts.current = 0;
     
-    // Small delay to ensure cleanup
     setTimeout(() => {
       connect();
     }, 100);
   }, [disconnect, connect]);
 
-  // Initialize connection
   useEffect(() => {
-    // CRITICAL: Prevent multiple initializations
     if (hasInitialized.current) return;
     hasInitialized.current = true;
     
@@ -284,7 +260,6 @@ export function useWebSocket({
     shouldReconnect.current = true;
     connect();
 
-    // Cleanup function
     return () => {
       console.log('[WS] Cleaning up WebSocket');
       shouldReconnect.current = false;
@@ -300,7 +275,6 @@ export function useWebSocket({
     };
   }, [connect, clearTimeouts]);
 
-  // Prevent reconnection when component unmounts
   useEffect(() => {
     return () => {
       shouldReconnect.current = false;
@@ -312,7 +286,6 @@ export function useWebSocket({
     send,
     disconnect,
     reconnect,
-    // Additional state for debugging/monitoring
     connectionState: ws.current?.readyState,
     reconnectAttempts: reconnectAttempts.current,
     queuedMessages: messageQueue.current.length
