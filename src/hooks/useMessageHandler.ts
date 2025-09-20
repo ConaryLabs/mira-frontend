@@ -21,72 +21,121 @@ export const useMessageHandler = (
     switch (message.type) {
       case 'stream_chunk':
         // Backend uses 'stream_chunk' with 'text' field (not 'content')
-        console.log('📝 Stream chunk text:', message.text);
+        console.log('📝 Stream chunk text:', JSON.stringify(message.text));
+        
         setMessages(prev => {
           const lastMsg = prev[prev.length - 1];
+          
+          // Check if we have an active streaming message
           if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
+            // Append to existing streaming message
+            console.log('📎 Appending to existing streaming message');
             return [
               ...prev.slice(0, -1),
               { ...lastMsg, content: lastMsg.content + (message.text || '') }
             ];
           } else {
-            return [...prev, {
+            // Create new streaming message
+            console.log('✨ Creating new streaming message');
+            const newMessage: Message = {
               id: message.id || `msg-${Date.now()}`,
               role: 'assistant',
               content: message.text || '',
               streaming: true,
               timestamp: Date.now()
-            }];
+            };
+            return [...prev, newMessage];
           }
         });
+        
+        // Ensure streaming state is active
+        setIsStreaming(true);
         break;
         
       case 'stream_end':
         // Backend sends this to end the stream
         console.log('🏁 Stream ended');
+        
         setMessages(prev => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg && lastMsg.streaming) {
+            console.log('✅ Finalizing streaming message');
             return [
               ...prev.slice(0, -1),
               { ...lastMsg, streaming: false }
             ];
+          } else {
+            console.warn('⚠️ Stream end but no streaming message found');
           }
           return prev;
         });
+        
         setIsStreaming(false);
         break;
         
       case 'complete':
         // Backend uses 'complete' for final message metadata
+        console.log('🎯 Complete message received:', message);
+        
         setMessages(prev => {
           const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.streaming) {
-            // Complete the existing streaming message
+          if (lastMsg && lastMsg.role === 'assistant') {
+            // Complete the existing assistant message (streaming or not)
+            console.log('✅ Completing assistant message');
             return [
               ...prev.slice(0, -1),
               { 
                 ...lastMsg, 
-                streaming: false
+                streaming: false,
+                // Optionally add metadata from complete message
+                metadata: {
+                  mood: message.mood,
+                  salience: message.salience,
+                  tags: message.tags
+                }
               }
             ];
           } else {
-            // If there's no streaming message, don't add a placeholder
-            console.log('Received complete without streaming message:', message);
+            // No assistant message to complete - this is the warning case
+            console.warn('⚠️ Received complete without assistant message:', message);
           }
           return prev;
         });
+        
         setIsStreaming(false);
         break;
         
       case 'connection_ready':
         // Backend connection ready
-        console.log('Backend ready:', message);
+        console.log('🔗 Backend ready:', message);
         break;
         
       case 'status':
-        // System status messages
+        // System status messages - parse if it's JSON heartbeat
+        console.log('📊 Status:', message.message);
+        
+        // Don't show heartbeat messages in chat
         if (message.message && typeof message.message === 'string') {
+          try {
+            const parsed = JSON.parse(message.message);
+            if (parsed.type === 'heartbeat') {
+              // Ignore heartbeat - don't add to messages
+              console.log('💓 Heartbeat filtered out');
+              return;
+            }
+          } catch {
+            // Not JSON, treat as regular status
+          }
+          
+          // Filter out initial connection messages too
+          if (message.message.includes('Connected to Mira') || 
+              message.message.includes('Model:') ||
+              message.message.includes('Tools:')) {
+            console.log('🔇 Connection status filtered out');
+            return;
+          }
+          
+          // Add non-heartbeat status messages to chat
           setMessages(prev => [...prev, {
             id: `status-${Date.now()}`,
             role: 'system',
@@ -105,16 +154,25 @@ export const useMessageHandler = (
         
       case 'error':
         // Handle backend errors
-        console.error('Backend error:', message.message || message.error || 'Unknown error');
+        console.error('❌ Backend error:', message.message || message.error || 'Unknown error');
+        
+        // Add error to chat
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          role: 'system',
+          content: `Error: ${message.message || message.error || 'Unknown error'}`,
+          timestamp: Date.now()
+        }]);
+        
         setIsStreaming(false);
         break;
         
       case 'heartbeat':
-        // Ignore heartbeat messages
+        // Ignore standalone heartbeat messages
         break;
         
       default:
-        console.log('Unhandled message type:', message.type, message);
+        console.log('❓ Unhandled message type:', message.type, message);
         break;
     }
   }, [setMessages, setIsStreaming]);
@@ -123,12 +181,12 @@ export const useMessageHandler = (
     switch (data.type) {
       case 'project_list':
         // Update project list in state
-        console.log('Projects loaded:', data.projects);
+        console.log('📁 Projects loaded:', data.projects);
         break;
         
       case 'git_status':
         // Update git status
-        console.log('Git status:', data);
+        console.log('🔄 Git status:', data);
         break;
         
       case 'repository_imported':
@@ -136,32 +194,13 @@ export const useMessageHandler = (
         setMessages(prev => [...prev, {
           id: `sys-${Date.now()}`,
           role: 'system',
-          content: `Repository imported successfully! Analyzed ${data.files_analyzed} files.`,
+          content: `Repository imported successfully: ${data.name || 'Unknown'}`,
           timestamp: Date.now()
         }]);
         break;
         
-      case 'search_results':
-        // Display search results as tool result
-        setMessages(prev => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...lastMsg,
-                toolResults: [...(lastMsg.toolResults || []), {
-                  id: `search-${Date.now()}`,
-                  type: 'code_search',
-                  status: 'success',
-                  data: data.results,
-                  timestamp: Date.now()
-                }]
-              }
-            ];
-          }
-          return prev;
-        });
+      default:
+        console.log('❓ Unhandled data type:', data.type, data);
         break;
     }
   }, [setMessages]);
