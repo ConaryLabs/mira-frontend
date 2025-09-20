@@ -1,161 +1,220 @@
 // src/components/ChatContainer.tsx
-
-import React, { useState, useEffect } from 'react';
-import { useChatState } from '../hooks/useChatState';
-import { MessageBubble } from './MessageBubble';
+import React, { useState, useRef, useEffect } from 'react';
+import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
-import { User, Bot, Moon, Sun, AlertCircle } from 'lucide-react';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useAppState } from '../hooks/useAppState';
+import type { Message } from '../types/messages';
 
 export const ChatContainer: React.FC = () => {
-  console.log('ChatContainer rendering...');
+  // Messages persist across EVERYTHING - never reset
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
+  const { currentProject } = useAppState();
+  const { send, lastMessage, connectionState } = useWebSocket();
+  const commands = useBackendCommands();
 
-  const chatState = useChatState();
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
-
-  // Apply theme
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
+  // Auto-scroll to bottom
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatState.messages]);
+  };
 
-  // Tool handler (placeholder for now)
-  const handleToolInvoke = (toolType: string, payload: any) => {
-    console.log('Tool invoked:', toolType, payload);
-    // TODO: Implement tool handling
-    // For now, just send as a regular message
-    if (toolType === 'web_search') {
-      chatState.handleSendMessage(`Search the web for: ${payload.query}`);
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Handle incoming messages
+  useEffect(() => {
+    if (lastMessage) {
+      handleIncomingMessage(lastMessage);
+    }
+  }, [lastMessage]);
+
+  const handleIncomingMessage = (message: any) => {
+    // Handle different message types from backend
+    switch (message.type) {
+      case 'chunk':
+        // Streaming chat response
+        setMessages(prev => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, content: lastMsg.content + message.content }
+            ];
+          } else {
+            return [...prev, {
+              id: message.id || `msg-${Date.now()}`,
+              role: 'assistant',
+              content: message.content,
+              streaming: true,
+              timestamp: Date.now()
+            }];
+          }
+        });
+        break;
+        
+      case 'complete':
+        // Complete message
+        setMessages(prev => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.streaming) {
+            return [
+              ...prev.slice(0, -1),
+              { 
+                ...lastMsg, 
+                content: message.content || lastMsg.content, 
+                streaming: false,
+                mood: message.mood,
+                artifacts: message.artifacts,
+                toolResults: message.tool_results
+              }
+            ];
+          } else {
+            return [...prev, {
+              id: message.id || `msg-${Date.now()}`,
+              role: 'assistant',
+              content: message.content,
+              streaming: false,
+              timestamp: Date.now(),
+              mood: message.mood,
+              artifacts: message.artifacts,
+              toolResults: message.tool_results
+            }];
+          }
+        });
+        setIsStreaming(false);
+        break;
+        
+      case 'status':
+        // System status messages
+        setMessages(prev => [...prev, {
+          id: `status-${Date.now()}`,
+          role: 'system',
+          content: message.message,
+          timestamp: Date.now()
+        }]);
+        break;
+        
+      case 'data':
+        // Handle data responses (project lists, git status, etc.)
+        handleDataResponse(message.data);
+        break;
     }
   };
 
+  const handleDataResponse = (data: any) => {
+    switch (data.type) {
+      case 'project_list':
+        // Update project list in state
+        console.log('Projects loaded:', data.projects);
+        break;
+        
+      case 'git_status':
+        // Update git status
+        console.log('Git status:', data);
+        break;
+        
+      case 'repository_imported':
+        // Show success message
+        setMessages(prev => [...prev, {
+          id: `sys-${Date.now()}`,
+          role: 'system',
+          content: `Repository imported successfully! Analyzed ${data.files_analyzed} files.`,
+          timestamp: Date.now()
+        }]);
+        break;
+        
+      case 'search_results':
+        // Display search results as tool result
+        setMessages(prev => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...lastMsg,
+                toolResults: [...(lastMsg.toolResults || []), {
+                  id: `search-${Date.now()}`,
+                  type: 'code_search',
+                  status: 'success',
+                  data: data.results,
+                  timestamp: Date.now()
+                }]
+              }
+            ];
+          }
+          return prev;
+        });
+        break;
+    }
+  };
+
+  const handleSend = async (content: string) => {
+    // Add user message immediately
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setIsStreaming(true);
+
+    // Check if this looks like a natural language command
+    try {
+      await commands.handleNaturalLanguageCommand(content, currentProject?.id);
+    } catch (error) {
+      console.error('Command failed:', error);
+      setIsStreaming(false);
+    }
+  };
+
+  const addSystemMessage = (content: string) => {
+    setMessages(prev => [...prev, {
+      id: `sys-${Date.now()}`,
+      role: 'system',
+      content,
+      timestamp: Date.now()
+    }]);
+  };
+
+  // When project changes, add context but DON'T clear messages
+  useEffect(() => {
+    if (currentProject) {
+      addSystemMessage(`Now working in project: ${currentProject.name}`);
+    }
+  }, [currentProject?.id]);
+
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 shadow-sm">
-        <div className="flex items-center justify-between max-w-5xl mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-              <Bot className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Mira</h1>
-              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                {chatState.isConnected ? (
-                  <>
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span>Connected</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                    <span>Connecting...</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <button
-            onClick={() => setIsDark(!isDark)}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            {isDark ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-gray-600" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto">
-          {chatState.messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center mb-6">
-                <Bot className="w-12 h-12 text-white" />
-              </div>
-              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-                Welcome to Mira
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 max-w-md">
-                I'm your AI assistant. Ask me anything or just say hello to get started!
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-4">
-              {/* Messages - newest first, then reversed for display */}
-              {[...chatState.messages].reverse().map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isDark={isDark}
-                  onArtifactClick={() => {}}
-                />
-              ))}
-              
-              {/* Thinking indicator */}
-              {chatState.isThinking && (
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl px-4 py-3 shadow-sm">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Status/Error Messages */}
-      {chatState.statusMessage && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800 px-4 py-2">
-          <div className="max-w-5xl mx-auto text-sm text-blue-600 dark:text-blue-400">
-            {chatState.statusMessage}
-          </div>
+    <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
+      {/* Connection status */}
+      {connectionState !== 'connected' && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200">
+          {connectionState === 'connecting' ? 'Connecting...' : 'Disconnected'}
         </div>
       )}
       
-      {chatState.connectionError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800 px-4 py-2">
-          <div className="max-w-5xl mx-auto flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-            <AlertCircle className="w-4 h-4" />
-            {chatState.connectionError}
-          </div>
-        </div>
-      )}
-
-      {/* Input Area */}
-      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="max-w-5xl mx-auto p-4">
-          <ChatInput
-            onSend={chatState.handleSendMessage}
-            onToolInvoke={handleToolInvoke}
-            disabled={!chatState.isConnected || chatState.isThinking}
-            isDark={isDark}
-          />
-        </div>
+      {/* Messages area - Claude-style scrolling */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <MessageList messages={messages} />
+        <div ref={messagesEndRef} />
+      </div>
+      
+      {/* Input area - pinned to bottom like Claude */}
+      <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-4">
+        <ChatInput 
+          onSend={handleSend} 
+          disabled={connectionState !== 'connected' || isStreaming}
+          placeholder={
+            currentProject 
+              ? `Message Mira about ${currentProject.name}...`
+              : "Message Mira..."
+          }
+        />
       </div>
     </div>
   );

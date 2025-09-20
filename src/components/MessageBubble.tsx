@@ -1,117 +1,164 @@
 // src/components/MessageBubble.tsx
-// Cleaned up version removing artifact UI per Phase 2 of guide
-
 import React from 'react';
-import { User, Bot } from 'lucide-react';
-import clsx from 'clsx';
-import type { Message } from '../types/messages';
-import { ToolResultsContainer } from './ToolResultsContainer';
+import { User, Bot, System, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
+import type { Message } from '../types';
 
 interface MessageBubbleProps {
   message: Message;
-  onArtifactClick?: (artifactId: string) => void; // Keep for backwards compatibility but won't be used
-  isDark: boolean;
+  isLast?: boolean;
 }
 
-export function MessageBubble({ message, isDark }: MessageBubbleProps) {
-  const isUser = message.role === 'user';
-  const toolResults = message.toolResults || [];
-  const citations = message.citations || [];
-
-  // Enhanced content rendering with citation support
-  const renderContentWithCitations = (content: string) => {
-    if (!citations.length) {
-      return content;
-    }
-
-    // Simple citation rendering - replace [n] with clickable citations
-    let processedContent = content;
-    citations.forEach((citation, index) => {
-      const citationMark = `[${index + 1}]`;
-      if (processedContent.includes(citationMark)) {
-        processedContent = processedContent.replace(
-          citationMark,
-          `<sup class="citation-link text-blue-600 dark:text-blue-400 cursor-pointer" data-citation="${index}">[${index + 1}]</sup>`
-        );
-      }
-    });
-
-    return (
-      <div
-        dangerouslySetInnerHTML={{ __html: processedContent }}
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.classList.contains('citation-link')) {
-            const citationIndex = parseInt(target.getAttribute('data-citation') || '0');
-            const citation = citations[citationIndex];
-            if (citation?.url) {
-              window.open(citation.url, '_blank');
-            }
-          }
-        }}
-      />
-    );
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast }) => {
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content);
   };
 
-  return (
-    <div className={clsx(
-      'flex space-x-3 py-3',
-      isUser ? 'flex-row-reverse' : 'flex-row'
-    )}>
-      {/* Avatar */}
-      <div className={clsx(
-        'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
-        isUser ? 'bg-gray-600 dark:bg-gray-400' : 'bg-gray-800 dark:bg-gray-600'
-      )}>
-        {isUser ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
-      </div>
-
-      {/* Message Content */}
-      <div className={clsx('flex-1 max-w-[70%]', isUser ? 'items-end' : 'items-start')}>
-        <div className={clsx(
-          'rounded-2xl px-4 py-3 shadow-sm',
-          isUser
-            ? 'bg-gray-600 dark:bg-gray-400 text-white'
-            : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-        )}>
-          <div className={clsx('text-sm leading-relaxed', message.isStreaming && 'animate-pulse')}>
-            {renderContentWithCitations(message.content)}
+  const getAvatar = () => {
+    switch (message.role) {
+      case 'user':
+        return (
+          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <User size={16} className="text-white" />
           </div>
+        );
+      case 'assistant':
+        return (
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
+            <Bot size={16} className="text-white" />
+          </div>
+        );
+      case 'system':
+        return (
+          <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center flex-shrink-0">
+            <System size={16} className="text-white" />
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
 
-          {/* Tags */}
-          {message.tags && message.tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {message.tags.map((tag, idx) => (
-                <span
-                  key={idx}
-                  className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-600 dark:text-gray-300"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
+  const formatContent = (content: string) => {
+    // Basic markdown-like formatting
+    return content
+      .split('\n')
+      .map((line, index) => (
+        <p key={index} className={index > 0 ? 'mt-2' : ''}>
+          {line}
+        </p>
+      ));
+  };
+
+  const getMessageStyle = () => {
+    switch (message.role) {
+      case 'user':
+        return 'ml-12'; // Indent user messages
+      case 'system':
+        return 'bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-400 italic';
+      default:
+        return '';
+    }
+  };
+
+  if (message.role === 'system') {
+    return (
+      <div className={getMessageStyle()}>
+        {formatContent(message.content)}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex gap-3 group ${getMessageStyle()}`}>
+      {/* Avatar */}
+      {message.role !== 'user' && getAvatar()}
+      
+      {/* Message content */}
+      <div className="flex-1 min-w-0">
+        {/* Header with role and timestamp */}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+            {message.role === 'user' ? 'You' : 'Mira'}
+          </span>
+          <span className="text-xs text-gray-500">
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </span>
+          {message.mood && (
+            <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full">
+              {message.mood}
+            </span>
           )}
-
-          {/* Salience indicator (optional, lightweight) */}
-          {message.salience && message.salience > 5 && (
-            <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">⚡ High importance</div>
+          {message.streaming && (
+            <span className="text-xs text-blue-600 dark:text-blue-400">
+              typing...
+            </span>
           )}
         </div>
 
-        {/* Tool Results / Citations */}
-        {!isUser && (toolResults.length > 0 || citations.length > 0) && (
-          <div className="mt-2">
-            <ToolResultsContainer toolResults={toolResults} citations={citations} isDark={isDark} />
+        {/* Message body */}
+        <div className="prose prose-sm max-w-none text-gray-900 dark:text-gray-100">
+          {formatContent(message.content)}
+        </div>
+
+        {/* Tool results */}
+        {message.toolResults && message.toolResults.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {message.toolResults.map((result) => (
+              <div key={result.id} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    {result.type.replace('_', ' ').toUpperCase()}
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    result.status === 'success' 
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                      : result.status === 'error'
+                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                      : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                  }`}>
+                    {result.status}
+                  </span>
+                </div>
+                <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {JSON.stringify(result.data, null, 2)}
+                </pre>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Timestamp */}
-        <div className={clsx('text-xs text-gray-500 dark:text-gray-400 mt-1', isUser ? 'text-right' : 'text-left')}>
-          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </div>
-
-        {/* REMOVED: Artifact reference UI as per Phase 2 cleanup */}
+        {/* Action buttons (only for assistant messages) */}
+        {message.role === 'assistant' && !message.streaming && (
+          <div className="flex items-center gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={handleCopy}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="Copy message"
+            >
+              <Copy size={14} />
+            </button>
+            <button
+              className="p-1.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="Good response"
+            >
+              <ThumbsUp size={14} />
+            </button>
+            <button
+              className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="Poor response"
+            >
+              <ThumbsDown size={14} />
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* User avatar on the right */}
+      {message.role === 'user' && (
+        <div className="flex-shrink-0">
+          {getAvatar()}
+        </div>
+      )}
     </div>
   );
-}
+};
