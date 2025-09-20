@@ -29,14 +29,16 @@ export const useMessageHandler = (
           // Check if we have an active streaming message
           if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
             // Append to existing streaming message
-            console.log('📎 Appending to existing streaming message');
+            console.log('📎 Appending to existing streaming message. Current content length:', lastMsg.content.length);
+            const newContent = lastMsg.content + (message.text || '');
+            console.log('📎 New content will be:', JSON.stringify(newContent));
             return [
               ...prev.slice(0, -1),
-              { ...lastMsg, content: lastMsg.content + (message.text || '') }
+              { ...lastMsg, content: newContent }
             ];
           } else {
             // Create new streaming message
-            console.log('✨ Creating new streaming message');
+            console.log('✨ Creating new streaming message with text:', JSON.stringify(message.text));
             const newMessage: Message = {
               id: message.id || `msg-${Date.now()}`,
               role: 'assistant',
