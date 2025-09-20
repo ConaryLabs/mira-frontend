@@ -49,11 +49,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <div className="relative flex items-end gap-2 p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 focus-within:border-blue-500 dark:focus-within:border-blue-400">
+      <div className="relative flex items-end gap-2 p-3 border border-slate-600 rounded-lg bg-slate-800 focus-within:border-blue-500">
         {/* Attachment button (future feature) */}
         <button 
           type="button"
-          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+          className="flex-shrink-0 p-2 text-slate-400 hover:text-slate-300 rounded-md hover:bg-slate-700"
           title="Attach file"
         >
           <Paperclip size={18} />
@@ -70,14 +70,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="flex-1 min-h-[44px] max-h-[200px] px-0 py-2 text-gray-900 dark:text-gray-100 bg-transparent border-0 outline-none resize-none placeholder-gray-500 dark:placeholder-gray-400"
+          className="flex-1 min-h-[44px] max-h-[200px] px-0 py-2 text-slate-100 bg-transparent border-0 outline-none resize-none placeholder-slate-500"
           style={{ lineHeight: '1.5' }}
         />
 
         {/* Voice input button (future feature) */}
         <button 
           type="button"
-          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+          className="flex-shrink-0 p-2 text-slate-400 hover:text-slate-300 rounded-md hover:bg-slate-700"
           title="Voice message"
         >
           <Mic size={18} />
@@ -90,7 +90,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           disabled={!message.trim() || disabled}
           className={`flex-shrink-0 p-2 rounded-md transition-colors ${
             !message.trim() || disabled
-              ? 'text-gray-400 cursor-not-allowed'
+              ? 'text-slate-500 cursor-not-allowed'
               : 'text-white bg-blue-600 hover:bg-blue-700'
           }`}
           title="Send message"
@@ -100,7 +100,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </div>
 
       {/* Helpful hints */}
-      <div className="mt-2 text-xs text-gray-500 text-center">
+      <div className="mt-2 text-xs text-slate-500 text-center">
         Press Enter to send, Shift+Enter for new line
       </div>
     </div>

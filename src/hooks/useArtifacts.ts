@@ -81,7 +81,7 @@ export const useArtifacts = (): ArtifactHook => {
     artifacts,
     activeArtifact,
     showArtifacts,
-    addArtifact: createArtifact,
+    addArtifact,
     setActiveArtifact,
     updateArtifact,
     removeArtifact,

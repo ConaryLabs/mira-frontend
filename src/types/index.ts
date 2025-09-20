@@ -37,7 +37,7 @@ export interface Artifact {
 
 export interface ToolResult {
   id: string;
-  type: 'web_search' | 'code_execution' | 'file_operation' | 'git_operation' | 'code_analysis';
+  type: 'web_search' | 'code_execution' | 'file_operation' | 'git_operation' | 'code_analysis' | 'code_search' | 'repository_stats' | 'complexity_analysis';
   status: 'success' | 'error' | 'pending';
   data: any;
   timestamp: number;

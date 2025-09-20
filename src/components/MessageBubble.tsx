@@ -1,6 +1,6 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
-import { User, Bot, System, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Bot, Copy, ThumbsUp, ThumbsDown, Settings } from 'lucide-react';
 import type { Message } from '../types';
 
 interface MessageBubbleProps {
@@ -30,7 +30,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
       case 'system':
         return (
           <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center flex-shrink-0">
-            <System size={16} className="text-white" />
+            <Settings size={16} className="text-white" />
           </div>
         );
       default:
@@ -62,7 +62,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
 
   if (message.role === 'system') {
     return (
-      <div className={getMessageStyle()}>
+      <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-400 italic">
         {formatContent(message.content)}
       </div>
     );
@@ -77,26 +77,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
       <div className="flex-1 min-w-0">
         {/* Header with role and timestamp */}
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+          <span className="font-medium text-sm text-slate-100">
             {message.role === 'user' ? 'You' : 'Mira'}
           </span>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-slate-500">
             {new Date(message.timestamp).toLocaleTimeString()}
           </span>
-          {message.mood && (
-            <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full">
-              {message.mood}
-            </span>
-          )}
           {message.streaming && (
-            <span className="text-xs text-blue-600 dark:text-blue-400">
+            <span className="text-xs text-blue-400">
               typing...
             </span>
           )}
         </div>
 
         {/* Message body */}
-        <div className="prose prose-sm max-w-none text-gray-900 dark:text-gray-100">
+        <div className="prose prose-sm max-w-none text-slate-200">
           {formatContent(message.content)}
         </div>
 

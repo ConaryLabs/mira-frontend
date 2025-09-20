@@ -14,7 +14,7 @@ function App() {
   useWebSocketMessageHandler();
 
   return (
-    <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
+    <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
       {/* Claude-style header */}
       <Header />
       

@@ -20,9 +20,17 @@ export const useWebSocketMessageHandler = () => {
   }, [lastMessage]);
 
   const handleMessage = (message: any) => {
+    // Guard against undefined messages
+    if (!message || typeof message !== 'object') {
+      console.warn('Received invalid message:', message);
+      return;
+    }
+
     switch (message.type) {
       case 'data':
-        handleDataMessage(message.data);
+        if (message.data) {
+          handleDataMessage(message.data);
+        }
         break;
         
       case 'status':
@@ -30,7 +38,11 @@ export const useWebSocketMessageHandler = () => {
         break;
         
       case 'error':
-        console.error('Backend error:', message.error);
+        console.error('Backend error:', message.error || message.message || 'Unknown error');
+        break;
+        
+      case 'heartbeat':
+        // Ignore heartbeat messages
         break;
         
       default:
