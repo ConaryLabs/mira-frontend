@@ -11,19 +11,19 @@ import type { Message } from '../types';
 export const ChatContainer: React.FC = () => {
   // State management
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Hooks for functionality
   const { currentProject } = useAppState();
   const { lastMessage, connectionState } = useWebSocket();
-  const { handleIncomingMessage } = useMessageHandler(setMessages, setIsStreaming);
-  const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsStreaming);
+  const { handleIncomingMessage } = useMessageHandler(setMessages, setIsWaitingForResponse);
+  const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsWaitingForResponse);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isWaitingForResponse]);
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -50,7 +50,7 @@ export const ChatContainer: React.FC = () => {
       
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-6 bg-slate-900">
-        <MessageList messages={messages} />
+        <MessageList messages={messages} isWaitingForResponse={isWaitingForResponse} />
         <div ref={messagesEndRef} />
       </div>
       
@@ -58,7 +58,7 @@ export const ChatContainer: React.FC = () => {
       <div className="border-t border-slate-700 px-4 py-4 bg-slate-900">
         <ChatInput 
           onSend={handleSend} 
-          disabled={connectionState !== 'connected' || isStreaming}
+          disabled={connectionState !== 'connected' || isWaitingForResponse}
           placeholder={
             currentProject 
               ? `Message Mira about ${currentProject.name}...`

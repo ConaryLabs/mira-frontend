@@ -1,165 +1,99 @@
 // src/components/ChatInput.tsx
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Mic, Square } from 'lucide-react';
+import React, { useState, useRef, KeyboardEvent, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (content: string) => Promise<void>;
   disabled?: boolean;
-  isStreaming?: boolean;
   placeholder?: string;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ 
   onSend, 
   disabled = false, 
-  isStreaming = false,
   placeholder = "Message Mira..." 
 }) => {
-  const [message, setMessage] = useState('');
-  const [isComposing, setIsComposing] = useState(false);
+  const [content, setContent] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
+  // Keep focus in textarea after sending
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    if (!isProcessing && textareaRef.current) {
+      textareaRef.current.focus();
     }
-  }, [message]);
+  }, [isProcessing]);
 
-  // Keep focus when not disabled
-  useEffect(() => {
-    if (!disabled && textareaRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        if (textareaRef.current && document.activeElement !== textareaRef.current) {
-          textareaRef.current.focus();
-        }
-      }, 100);
+  const handleSend = async () => {
+    if (!content.trim() || disabled || isProcessing) return;
+    
+    const messageToSend = content.trim();
+    setContent('');
+    setIsProcessing(true);
+    
+    try {
+      await onSend(messageToSend);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      setContent(messageToSend);
+    } finally {
+      setIsProcessing(false);
     }
-  }, [disabled, isStreaming]);
-
-  const handleSubmit = () => {
-    if (!message.trim() || disabled) return;
-    
-    onSend(message.trim());
-    setMessage('');
-    
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-    }
-    
-    // Keep focus after sending
-    setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 50);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      handleSend();
     }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setContent(e.target.value);
     
-    // Escape to stop streaming (future feature)
-    if (e.key === 'Escape' && isStreaming) {
-      // TODO: Implement stream interruption
-      console.log('TODO: Stop streaming');
-    }
+    const textarea = e.target;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
 
-  const handleCompositionStart = () => setIsComposing(true);
-  const handleCompositionEnd = () => setIsComposing(false);
-
-  const handleStopStreaming = () => {
-    // TODO: Implement stopping the stream
-    console.log('TODO: Stop streaming');
-  };
+  const isInputDisabled = disabled || isProcessing;
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      <div className={`relative flex items-end gap-2 p-3 border rounded-lg focus-within:border-blue-500 transition-colors ${
-        isStreaming 
-          ? 'border-blue-400 bg-slate-800/80' 
-          : 'border-slate-600 bg-slate-800'
-      }`}>
-        {/* Attachment button (future feature) */}
-        <button 
-          type="button"
-          className="flex-shrink-0 p-2 text-slate-400 hover:text-slate-300 rounded-md hover:bg-slate-700 transition-colors"
-          title="Attach file"
-        >
-          <Paperclip size={18} />
-        </button>
-
-        {/* Text input */}
+    <div className="relative">
+      <div className="flex items-end space-x-3 bg-slate-800 rounded-lg border border-slate-600 p-3">
         <textarea
           ref={textareaRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          value={content}
+          onChange={handleInput}
           onKeyDown={handleKeyDown}
-          onCompositionStart={handleCompositionStart}
-          onCompositionEnd={handleCompositionEnd}
           placeholder={placeholder}
-          disabled={disabled}
+          disabled={isInputDisabled}
+          className="flex-1 bg-transparent text-slate-100 placeholder-slate-400 resize-none border-none outline-none min-h-[24px] max-h-[200px]"
           rows={1}
-          className={`flex-1 min-h-[44px] max-h-[200px] px-0 py-2 bg-transparent border-0 outline-none resize-none transition-colors ${
-            disabled 
-              ? 'text-slate-500 placeholder-slate-600 cursor-not-allowed'
-              : isStreaming
-              ? 'text-slate-200 placeholder-slate-400'
-              : 'text-slate-100 placeholder-slate-500'
-          }`}
-          style={{ lineHeight: '1.5' }}
+          autoFocus
         />
-
-        {/* Voice input button (future feature) */}
-        <button 
-          type="button"
-          className="flex-shrink-0 p-2 text-slate-400 hover:text-slate-300 rounded-md hover:bg-slate-700 transition-colors"
-          title="Voice message"
+        
+        <button
+          onClick={handleSend}
+          disabled={isInputDisabled || !content.trim()}
+          className={`
+            px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2
+            ${isInputDisabled || !content.trim()
+              ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
+              : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+            }
+          `}
         >
-          <Mic size={18} />
+          {isProcessing && <Loader2 size={16} className="animate-spin" />}
+          {isProcessing ? 'Sending...' : 'Send'}
         </button>
-
-        {/* Send/Stop button */}
-        {isStreaming ? (
-          <button
-            type="button"
-            onClick={handleStopStreaming}
-            className="flex-shrink-0 p-2 text-red-400 hover:text-red-300 bg-red-900/20 hover:bg-red-900/40 rounded-md transition-colors"
-            title="Stop generating"
-          >
-            <Square size={18} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!message.trim() || disabled}
-            className={`flex-shrink-0 p-2 rounded-md transition-colors ${
-              !message.trim() || disabled
-                ? 'text-slate-500 cursor-not-allowed'
-                : 'text-white bg-blue-600 hover:bg-blue-700'
-            }`}
-            title="Send message"
-          >
-            <Send size={18} />
-          </button>
-        )}
       </div>
-
-      {/* Status/hints */}
-      <div className="mt-2 text-xs text-slate-500 text-center">
-        {isStreaming ? (
-          <span className="text-blue-400">
-            Mira is responding... Press Esc to interrupt
-          </span>
-        ) : (
-          'Press Enter to send, Shift+Enter for new line'
-        )}
-      </div>
+      
+      {isInputDisabled && !isProcessing && (
+        <div className="absolute bottom-1 left-3 text-xs text-slate-400">
+          Waiting for connection...
+        </div>
+      )}
     </div>
   );
 };

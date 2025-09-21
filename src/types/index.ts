@@ -6,11 +6,35 @@ export interface Message {
   content: string;
   timestamp: number;
   streaming?: boolean;
+  error?: boolean;
   mood?: string;
   isRoast?: boolean;
   isExcited?: boolean;
-  artifacts?: string[]; // Artifact IDs referenced in this message
+  artifacts?: string[];
   toolResults?: ToolResult[];
+  
+  // Rich metadata from backend structured responses
+  metadata?: {
+    // Analysis data from backend
+    salience?: number;
+    topics?: string[];
+    mood?: string | null;
+    contains_code?: boolean;
+    programming_lang?: string | null;
+    routed_to_heads?: string[];
+    
+    // Response metadata from backend
+    response_id?: string;
+    total_tokens?: number;
+    latency_ms?: number;
+    
+    // UI-specific metadata (optional)
+    intent?: string | null;
+    summary?: string | null;
+    relationship_impact?: string | null;
+    intensity?: number | null;
+    language?: string;
+  };
 }
 
 export interface Project {
@@ -30,7 +54,7 @@ export interface Artifact {
   type: 'text/markdown' | 'application/javascript' | 'application/typescript' | 'text/html' | 'text/css' | 'application/json' | 'text/python' | 'text/rust' | 'text/plain';
   content: string;
   language?: string;
-  linkedFile?: string; // Path to saved file
+  linkedFile?: string;
   created: number;
   modified: number;
 }

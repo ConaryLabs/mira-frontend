@@ -6,7 +6,7 @@ import type { Message } from '../types';
 
 export const useChatMessaging = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>
+  setIsWaitingForResponse: React.Dispatch<React.SetStateAction<boolean>>
 ) => {
   const { send } = useWebSocket();
   const { currentProject } = useAppState();
@@ -21,7 +21,7 @@ export const useChatMessaging = (
     };
     
     setMessages(prev => [...prev, userMessage]);
-    setIsStreaming(true);
+    setIsWaitingForResponse(true);
 
     // Send message in EXACT format backend expects (no extra fields!)
     const message = {
@@ -31,15 +31,15 @@ export const useChatMessaging = (
       metadata: null
     };
 
-    console.log('🚀 Sending message:', JSON.stringify(message));
+    console.log('Sending message:', JSON.stringify(message));
 
     try {
       await send(message);
     } catch (error) {
       console.error('Send failed:', error);
-      setIsStreaming(false);
+      setIsWaitingForResponse(false);
     }
-  }, [send, currentProject, setMessages, setIsStreaming]);
+  }, [send, currentProject, setMessages, setIsWaitingForResponse]);
 
   const addSystemMessage = useCallback((content: string) => {
     setMessages(prev => [...prev, {

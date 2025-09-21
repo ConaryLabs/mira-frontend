@@ -1,13 +1,15 @@
 // src/components/MessageList.tsx
 import React from 'react';
 import { MessageBubble } from './MessageBubble';
+import { ThinkingIndicator } from './ThinkingIndicator';
 import type { Message } from '../types';
 
 interface MessageListProps {
   messages: Message[];
+  isWaitingForResponse?: boolean;
 }
 
-export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
+export const MessageList: React.FC<MessageListProps> = ({ messages, isWaitingForResponse = false }) => {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -21,7 +23,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
           <p className="text-slate-400 leading-relaxed">
             I'm your AI development assistant with a personality. I can help you write code, 
             manage projects, understand complex systems, and maybe roast your commit messages 
-            along the way. 😏
+            along the way.
           </p>
           <p className="text-sm text-slate-500 mt-3">
             Start by telling me what you're working on, or just say hi!
@@ -40,6 +42,11 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
           isLast={index === messages.length - 1}
         />
       ))}
+      
+      {/* Show thinking indicator when waiting for response */}
+      {isWaitingForResponse && (
+        <ThinkingIndicator />
+      )}
     </div>
   );
 };
