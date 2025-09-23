@@ -1,6 +1,6 @@
 // src/components/ChatInput.tsx
 import React, { useState, useRef, KeyboardEvent, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 interface ChatInputProps {
   onSend: (content: string) => Promise<void>;
@@ -14,30 +14,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   placeholder = "Message Mira..." 
 }) => {
   const [content, setContent] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Keep focus in textarea after sending
+  // Keep focus in textarea
   useEffect(() => {
-    if (!isProcessing && textareaRef.current) {
+    if (!disabled && textareaRef.current) {
       textareaRef.current.focus();
     }
-  }, [isProcessing]);
+  }, [disabled]);
 
   const handleSend = async () => {
-    if (!content.trim() || disabled || isProcessing) return;
+    if (!content.trim() || disabled) return;
     
     const messageToSend = content.trim();
-    setContent('');
-    setIsProcessing(true);
+    setContent(''); // Clear immediately for better UX
     
     try {
       await onSend(messageToSend);
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Restore content on error
       setContent(messageToSend);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
@@ -51,12 +48,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value);
     
+    // Auto-resize textarea
     const textarea = e.target;
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
 
-  const isInputDisabled = disabled || isProcessing;
+  const canSend = !disabled && content.trim().length > 0;
 
   return (
     <div className="relative">
@@ -67,7 +65,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={isInputDisabled}
+          disabled={disabled}
           className="flex-1 bg-transparent text-slate-100 placeholder-slate-400 resize-none border-none outline-none min-h-[24px] max-h-[200px]"
           rows={1}
           autoFocus
@@ -75,25 +73,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         
         <button
           onClick={handleSend}
-          disabled={isInputDisabled || !content.trim()}
+          disabled={!canSend}
           className={`
             px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2
-            ${isInputDisabled || !content.trim()
-              ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+            ${canSend
+              ? 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+              : 'bg-slate-600 text-slate-400 cursor-not-allowed'
             }
           `}
         >
-          {isProcessing && <Loader2 size={16} className="animate-spin" />}
-          {isProcessing ? 'Sending...' : 'Send'}
+          <Send size={16} />
+          Send
         </button>
       </div>
       
-      {isInputDisabled && !isProcessing && (
-        <div className="absolute bottom-1 left-3 text-xs text-slate-400">
-          Waiting for connection...
-        </div>
-      )}
+      {/* No status text needed - ThinkingIndicator handles all feedback */}
     </div>
   );
 };

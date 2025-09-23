@@ -4,12 +4,19 @@ import { useWebSocket } from './useWebSocket';
 import { useAppState } from './useAppState';
 import type { Message } from '../types';
 
+const ETERNAL_SESSION_ID = 'peter-eternal'; // Match backend default
+
 export const useChatMessaging = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
   setIsWaitingForResponse: React.Dispatch<React.SetStateAction<boolean>>
 ) => {
   const { send } = useWebSocket();
   const { currentProject } = useAppState();
+
+  // Use the eternal session ID that matches backend
+  const getSessionId = useCallback(() => {
+    return ETERNAL_SESSION_ID;
+  }, []);
 
   const handleSend = useCallback(async (content: string) => {
     // Add user message immediately
@@ -23,15 +30,18 @@ export const useChatMessaging = (
     setMessages(prev => [...prev, userMessage]);
     setIsWaitingForResponse(true);
 
-    // Send message in EXACT format backend expects (no extra fields!)
+    // Send message - the backend already uses peter-eternal as default
     const message = {
       type: 'chat',
       content,
       project_id: currentProject?.id || null,
-      metadata: null
+      metadata: {
+        session_id: getSessionId(), // This should be peter-eternal
+        timestamp: Date.now(),
+      }
     };
 
-    console.log('Sending message:', JSON.stringify(message));
+    console.log('Sending message with session:', getSessionId(), JSON.stringify(message));
 
     try {
       await send(message);
@@ -39,7 +49,7 @@ export const useChatMessaging = (
       console.error('Send failed:', error);
       setIsWaitingForResponse(false);
     }
-  }, [send, currentProject, setMessages, setIsWaitingForResponse]);
+  }, [send, currentProject, setMessages, setIsWaitingForResponse, getSessionId]);
 
   const addSystemMessage = useCallback((content: string) => {
     setMessages(prev => [...prev, {

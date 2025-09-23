@@ -6,12 +6,14 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAppState } from '../hooks/useAppState';
 import { useMessageHandler } from '../hooks/useMessageHandler';
 import { useChatMessaging } from '../hooks/useChatMessaging';
+import { useChatPersistence } from '../hooks/useChatPersistence';
 import type { Message } from '../types';
 
 export const ChatContainer: React.FC = () => {
   // State management
   const [messages, setMessages] = useState<Message[]>([]);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Hooks for functionality
@@ -19,6 +21,9 @@ export const ChatContainer: React.FC = () => {
   const { lastMessage, connectionState } = useWebSocket();
   const { handleIncomingMessage } = useMessageHandler(setMessages, setIsWaitingForResponse);
   const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsWaitingForResponse);
+  
+  // Chat persistence
+  const { getSessionId, handleMemoryData } = useChatPersistence(setMessages, connectionState);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -27,17 +32,66 @@ export const ChatContainer: React.FC = () => {
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    if (lastMessage) {
-      handleIncomingMessage(lastMessage);
-    }
-  }, [lastMessage, handleIncomingMessage]);
+    if (!lastMessage) return;
 
-  // Add system message when project changes
+    try {
+      // Check if it's memory data first (could be in response or data format)
+      if (lastMessage.type === 'data' && lastMessage.data) {
+        handleMemoryData(lastMessage.data);
+        setIsLoadingHistory(false);
+      } else if (lastMessage.type === 'response' && lastMessage.data) {
+        // Memory commands might come back as response type
+        const responseData = lastMessage.data;
+        if (responseData.memories || responseData.stats || responseData.session_id) {
+          console.log('Handling memory data from response:', responseData);
+          handleMemoryData(responseData);
+          setIsLoadingHistory(false);
+        }
+      }
+      
+      // Then handle as regular chat message
+      handleIncomingMessage(lastMessage);
+    } catch (error) {
+      console.error('Error handling message:', error, lastMessage);
+      setIsLoadingHistory(false); // Stop loading on error
+    }
+  }, [lastMessage, handleIncomingMessage, handleMemoryData]);
+
+  // Stop showing loading state when connected (in case no history)
   useEffect(() => {
-    if (currentProject) {
+    if (connectionState === 'connected') {
+      // Give it a moment to load history, then assume no history exists
+      const timeout = setTimeout(() => {
+        if (isLoadingHistory) {
+          console.log('No history loaded after timeout - assuming empty conversation');
+          setIsLoadingHistory(false);
+        }
+      }, 3000); // Increased timeout
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [connectionState, isLoadingHistory]);
+
+  // Add system message when project changes (but only after history loads)
+  useEffect(() => {
+    if (currentProject && !isLoadingHistory) {
       addSystemMessage(`Now working in project: ${currentProject.name}`);
     }
-  }, [currentProject?.id, addSystemMessage]);
+  }, [currentProject?.id, addSystemMessage, isLoadingHistory]);
+
+  // Show loading state while fetching history
+  if (isLoadingHistory && connectionState === 'connected') {
+    return (
+      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full bg-slate-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+            <div className="text-slate-400 text-sm">Loading conversation...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full bg-slate-900">
