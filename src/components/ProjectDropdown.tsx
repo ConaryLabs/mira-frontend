@@ -15,7 +15,7 @@ export const ProjectDropdown: React.FC = () => {
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { currentProject, projects, setCurrentProject } = useAppState();
-  const { send } = useWebSocket();
+  const { send, connectionState } = useWebSocket();
 
   // Debug effect to watch project changes
   useEffect(() => {
@@ -25,23 +25,26 @@ export const ProjectDropdown: React.FC = () => {
     });
   }, [projects, currentProject]);
 
-  // Load projects on mount
+  // 🚀 FIX: Load projects when connection is established, not on mount
   useEffect(() => {
-    const loadProjects = async () => {
-      console.log('🔄 Loading projects on mount...');
-      try {
-        await send({
-          type: 'project_command',
-          method: 'project.list',
-          params: {}
-        });
-      } catch (error) {
-        console.error('❌ Failed to load projects:', error);
-      }
-    };
-    
-    loadProjects();
-  }, []); // Run once on mount
+    if (connectionState === 'connected' && projects.length === 0) {
+      const loadProjects = async () => {
+        console.log('🔄 Loading projects after connection established...');
+        try {
+          await send({
+            type: 'project_command',
+            method: 'project.list',
+            params: {}
+          });
+          console.log('✅ Project list request sent');
+        } catch (error) {
+          console.error('❌ Failed to load projects:', error);
+        }
+      };
+      
+      loadProjects();
+    }
+  }, [connectionState, projects.length, send]); // Depend on connection state, not mount
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -58,7 +61,7 @@ export const ProjectDropdown: React.FC = () => {
   }, []);
 
   const handleProjectSelect = async (project: any) => {
-    console.log('🎯 Selecting project:', project.name);
+    console.log('🎯 Selecting project:', project.name, 'hasRepository:', project.hasRepository);
     setCurrentProject(project);
     setIsOpen(false);
     
@@ -150,6 +153,14 @@ export const ProjectDropdown: React.FC = () => {
       
       console.log('🎉 Repository fully attached, cloned, and analyzed!');
       
+      // 🚀 NEW: Reload projects to get updated repository status
+      console.log('🔄 Reloading projects to update repository status...');
+      await send({
+        type: 'project_command',
+        method: 'project.list',
+        params: {}
+      });
+      
       setRepoUrl('');
       setShowAttachRepo(false);
       setIsOpen(false);
@@ -207,7 +218,11 @@ export const ProjectDropdown: React.FC = () => {
 
           {/* Project list */}
           <div className="max-h-64 overflow-y-auto">
-            {projects.length === 0 ? (
+            {connectionState !== 'connected' ? (
+              <div className="px-3 py-2 text-sm text-gray-400">
+                Connecting...
+              </div>
+            ) : projects.length === 0 ? (
               <div className="px-3 py-2 text-sm text-gray-400">
                 No projects yet
               </div>
@@ -220,6 +235,10 @@ export const ProjectDropdown: React.FC = () => {
                 >
                   <Folder size={14} />
                   <span className="truncate">{project.name}</span>
+                  {/* 🚀 Show repository indicator */}
+                  {project.hasRepository && (
+                    <GitBranch size={12} className="text-green-400" title="Has repository" />
+                  )}
                   {currentProject?.id === project.id && (
                     <span className="ml-auto text-blue-400">✓</span>
                   )}

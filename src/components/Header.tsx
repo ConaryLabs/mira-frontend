@@ -1,20 +1,21 @@
 // src/components/Header.tsx
 import React from 'react';
-import { FileText, Play, GitBranch } from 'lucide-react';
+import { Play, GitBranch, Command } from 'lucide-react';
 import { ProjectDropdown } from './ProjectDropdown';
 import ArtifactToggle from './ArtifactToggle';
+import { CommitPushButton } from './CommitPushButton';
 import { useAppState, useArtifactState } from '../hooks/useAppState';
+import { useQuickFileOpen } from './QuickFileOpen';
 
 export const Header: React.FC = () => {
   const { 
     currentProject, 
-    showFileExplorer, 
-    setShowFileExplorer,
     showArtifacts,
     setShowArtifacts
-  } = useAppState();
+  } = useAppState(); // 🚀 Removed file explorer state
   
   const { artifacts } = useArtifactState();
+  const { open: openQuickFileOpen } = useQuickFileOpen();
 
   return (
     <header className="h-14 border-b border-gray-700 px-4 flex items-center bg-gray-900">
@@ -22,18 +23,14 @@ export const Header: React.FC = () => {
       <div className="flex items-center gap-4">
         <ProjectDropdown />
         
-        {/* File explorer toggle - only show if project selected */}
-        {currentProject && (
+        {/* 🚀 NEW: Direct Quick File Open (Cmd+P) - only show if project with repo */}
+        {currentProject?.hasRepository && (
           <button
-            onClick={() => setShowFileExplorer(!showFileExplorer)}
-            className={`p-2 rounded-md transition-colors ${
-              showFileExplorer 
-                ? 'bg-blue-600 text-white' 
-                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-            }`}
-            title="Toggle file explorer"
+            onClick={openQuickFileOpen}
+            className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
+            title="Quick Open (⌘P)"
           >
-            <FileText size={16} />
+            <Command size={16} />
           </button>
         )}
       </div>
@@ -44,6 +41,11 @@ export const Header: React.FC = () => {
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <span>Working in project:</span>
             <span className="text-blue-400 font-medium">{currentProject.name}</span>
+            {currentProject.hasRepository && (
+              <span className="px-2 py-1 bg-green-900/30 text-green-300 rounded text-xs">
+                📁 Repository
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -59,22 +61,18 @@ export const Header: React.FC = () => {
               <Play size={16} />
             </button>
             
-            <button
-              className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
-              title="Git operations"
-            >
-              <GitBranch size={16} />
-            </button>
+            {/* Git commit/push button */}
+            <CommitPushButton />
           </>
         )}
         
-        {/* 🚀 NEW: Artifact Toggle - show when there are artifacts OR project selected */}
+        {/* Artifact Toggle - show when there are artifacts OR project selected */}
         {(artifacts.length > 0 || currentProject) && (
           <ArtifactToggle
             isOpen={showArtifacts}
             onClick={() => setShowArtifacts(!showArtifacts)}
             artifactCount={artifacts.length}
-            hasGitRepos={currentProject ? true : false}
+            hasGitRepos={currentProject?.hasRepository || false}
             isDark={true} // Header is always dark
           />
         )}

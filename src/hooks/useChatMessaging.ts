@@ -12,7 +12,7 @@ export const useChatMessaging = (
 ) => {
   const { send } = useWebSocket();
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
-  const { activeArtifact } = useArtifactState(); // This is the KEY addition
+  const { activeArtifact } = useArtifactState(); // 🚀 This is the KEY addition
 
   // Use the eternal session ID that matches backend
   const getSessionId = useCallback(() => {
@@ -87,7 +87,7 @@ export const useChatMessaging = (
         
         // Project context (already exists but enhanced)
         project_name: currentProject?.name || null,
-        has_repository: currentProject ? true : false,
+        has_repository: currentProject?.hasRepository || false,
         context_type: currentProject ? 'project' : 'general',
         
         // Git context
@@ -97,7 +97,7 @@ export const useChatMessaging = (
         modified_file_count: modifiedFiles.length,
         
         // Request enhanced processing from backend
-        request_repo_context: currentProject ? true : false,
+        request_repo_context: currentProject?.hasRepository || false,
         request_code_analysis: activeArtifact?.content ? true : false,
       }
     };
@@ -105,7 +105,7 @@ export const useChatMessaging = (
     console.log('🚀 Sending ENHANCED message with full context:', {
       session: getSessionId(),
       project: currentProject?.name || 'none',
-      hasRepo: currentProject ? 'yes' : 'no',
+      hasRepo: currentProject?.hasRepository ? 'yes' : 'no',
       activeFile: activeArtifact?.linkedFile || activeArtifact?.title || 'none',
       fileSize: activeArtifact?.content?.length || 0,
       language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : 'none',

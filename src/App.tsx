@@ -3,16 +3,19 @@ import React from 'react';
 import { Header } from './components/Header';
 import { ChatContainer } from './components/ChatContainer';
 import { ArtifactPanel } from './components/ArtifactPanel';
-import { FileBrowser } from './components/FileBrowser';
+import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
 import { useAppState } from './hooks/useAppState';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import './App.css';
 
 function App() {
-  const { showArtifacts, showFileExplorer } = useAppState();
+  const { showArtifacts } = useAppState(); // 🚀 Removed showFileExplorer
   
   // Handle all WebSocket messages globally
   useWebSocketMessageHandler();
+  
+  // Global Cmd+P handler for quick file open
+  const quickFileOpen = useQuickFileOpen();
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
@@ -21,12 +24,7 @@ function App() {
       
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* File Explorer - left panel (when toggled) */}
-        {showFileExplorer && (
-          <div className="w-80 border-r border-gray-700 bg-gray-900">
-            <FileBrowser />
-          </div>
-        )}
+        {/* 🚀 REMOVED: Old file explorer sidebar completely */}
         
         {/* Chat column - center, always visible */}
         <div className="flex-1 flex">
@@ -36,6 +34,12 @@ function App() {
           {showArtifacts && <ArtifactPanel />}
         </div>
       </div>
+
+      {/* Global QuickFileOpen modal (Cmd+P) */}
+      <QuickFileOpen
+        isOpen={quickFileOpen.isOpen}
+        onClose={quickFileOpen.close}
+      />
     </div>
   );
 }

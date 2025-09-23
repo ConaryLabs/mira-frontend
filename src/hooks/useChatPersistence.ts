@@ -1,9 +1,8 @@
 // src/hooks/useChatPersistence.ts
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useWebSocket } from './useWebSocket';
 import type { Message } from '../types';
 
-const SESSION_STORAGE_KEY = 'mira_session_id';
 const ETERNAL_SESSION_ID = 'peter-eternal'; // The backend's default eternal session
 
 export const useChatPersistence = (
@@ -11,51 +10,12 @@ export const useChatPersistence = (
   connectionState: string
 ) => {
   const { send } = useWebSocket();
+  const hasLoadedHistory = useRef(false); // 🚀 Prevent multiple history loads
 
   // Use the eternal session ID that matches backend
   const getSessionId = useCallback(() => {
-    // Always use the eternal session for now
-    // Later you could implement multiple conversations by checking localStorage
     return ETERNAL_SESSION_ID;
   }, []);
-
-  // Load chat history from backend
-  const loadChatHistory = useCallback(async () => {
-    if (connectionState !== 'connected') return;
-
-    const sessionId = getSessionId();
-    
-    try {
-      console.log('Loading chat history for session:', sessionId);
-      
-      // First try to get memory stats to see if there's any data
-      const statsMessage = {
-        type: 'memory_command',
-        method: 'memory.get_stats',
-        params: {
-          session_id: sessionId
-        }
-      };
-      
-      console.log('Sending memory stats command:', statsMessage);
-      await send(statsMessage);
-      
-      // Then request recent messages from backend
-      const recentMessage = {
-        type: 'memory_command',
-        method: 'memory.get_recent',
-        params: {
-          session_id: sessionId,
-          count: 50 // Load last 50 messages
-        }
-      };
-      
-      console.log('Sending memory recent command:', recentMessage);
-      await send(recentMessage);
-    } catch (error) {
-      console.error('Failed to load chat history:', error);
-    }
-  }, [connectionState, getSessionId, send]);
 
   // Convert backend memory entries to frontend messages
   const convertMemoryToMessages = useCallback((memories: any[]): Message[] => {
@@ -70,16 +30,28 @@ export const useChatPersistence = (
       if (!memory || !memory.content) continue;
       
       try {
+        // 🚀 Better timestamp handling
+        let timestamp = Date.now();
+        if (memory.timestamp) {
+          if (typeof memory.timestamp === 'string') {
+            timestamp = new Date(memory.timestamp).getTime();
+          } else if (typeof memory.timestamp === 'number') {
+            // Handle both milliseconds and seconds
+            timestamp = memory.timestamp > 1e12 ? memory.timestamp : memory.timestamp * 1000;
+          }
+        }
+
         const message: Message = {
-          id: memory.id?.toString() || `loaded-${index}`,
+          id: memory.id?.toString() || `loaded-${index}-${timestamp}`,
           role: (memory.role as 'user' | 'assistant' | 'system') || 'user',
           content: memory.content || '',
-          timestamp: new Date(memory.timestamp || Date.now()).getTime(),
+          timestamp,
           metadata: {
             salience: memory.salience,
             mood: memory.mood,
             intent: memory.intent,
-            topics: memory.topics ? (typeof memory.topics === 'string' ? JSON.parse(memory.topics) : memory.topics) : undefined,
+            topics: memory.topics ? (typeof memory.topics === 'string' ? 
+              JSON.parse(memory.topics) : memory.topics) : undefined,
             programming_lang: memory.programming_lang,
             contains_code: memory.contains_code,
           }
@@ -91,8 +63,19 @@ export const useChatPersistence = (
       }
     }
     
-    // Backend returns newest first, we want oldest first
-    return validMessages.reverse();
+    // 🚀 Sort by timestamp (oldest first) and remove duplicates
+    const sortedMessages = validMessages
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .filter((message, index, array) => {
+        // Remove duplicates based on content and timestamp
+        return index === array.findIndex(m => 
+          m.content === message.content && 
+          Math.abs(m.timestamp - message.timestamp) < 1000 // Within 1 second
+        );
+      });
+
+    console.log(`📚 Converted ${memories.length} memories to ${sortedMessages.length} messages`);
+    return sortedMessages;
   }, []);
 
   // Handle incoming memory data
@@ -111,7 +94,26 @@ export const useChatPersistence = (
     if (data.memories) {
       const loadedMessages = convertMemoryToMessages(data.memories);
       console.log('Loaded', loadedMessages.length, 'previous messages');
-      setMessages(loadedMessages);
+      
+      // 🚀 CRITICAL FIX: Only set messages if we haven't loaded history yet
+      if (!hasLoadedHistory.current) {
+        setMessages(loadedMessages);
+        hasLoadedHistory.current = true;
+      } else {
+        // If we already have messages, merge intelligently
+        setMessages(currentMessages => {
+          // Find messages that aren't already in current messages
+          const existingIds = new Set(currentMessages.map(m => m.id));
+          const newMessages = loadedMessages.filter(m => !existingIds.has(m.id));
+          
+          if (newMessages.length > 0) {
+            console.log(`🔄 Adding ${newMessages.length} new historical messages`);
+            return [...newMessages, ...currentMessages].sort((a, b) => a.timestamp - b.timestamp);
+          }
+          
+          return currentMessages;
+        });
+      }
       return;
     }
     
@@ -124,12 +126,51 @@ export const useChatPersistence = (
     console.log('Unhandled memory data:', data);
   }, [convertMemoryToMessages, setMessages]);
 
-  // Load history when connected
+  // Load chat history from backend - only once per connection
+  const loadChatHistory = useCallback(async () => {
+    if (connectionState !== 'connected' || hasLoadedHistory.current) return;
+
+    const sessionId = getSessionId();
+    
+    try {
+      console.log('🔄 Loading chat history for session:', sessionId);
+      
+      // Load recent messages from backend
+      const recentMessage = {
+        type: 'memory_command',
+        method: 'memory.get_recent',
+        params: {
+          session_id: sessionId,
+          count: 100 // 🚀 Load more messages to avoid gaps
+        }
+      };
+      
+      console.log('Sending memory recent command:', recentMessage);
+      await send(recentMessage);
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+      hasLoadedHistory.current = true; // Don't retry
+    }
+  }, [connectionState, getSessionId, send]);
+
+  // Load history when connected - but only once
   useEffect(() => {
-    if (connectionState === 'connected') {
-      loadChatHistory();
+    if (connectionState === 'connected' && !hasLoadedHistory.current) {
+      // Small delay to let connection settle
+      const timer = setTimeout(() => {
+        loadChatHistory();
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
   }, [connectionState, loadChatHistory]);
+
+  // Reset history flag when disconnected
+  useEffect(() => {
+    if (connectionState === 'disconnected') {
+      hasLoadedHistory.current = false;
+    }
+  }, [connectionState]);
 
   return {
     getSessionId,

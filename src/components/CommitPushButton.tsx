@@ -18,16 +18,21 @@ export const CommitPushButton: React.FC = () => {
     setIsCommitting(true);
     
     try {
+      // 🚀 The backend call that was missing!
       await commands.gitSync(
         currentProject.id,
         commitMessage || `Update ${modifiedFiles.length} files`
       );
       
+      // Clear modified files and close dialog
       clearModifiedFiles();
       setCommitMessage('');
       setShowCommitDialog(false);
+      
+      console.log('✅ Successfully committed and pushed changes');
     } catch (error) {
-      console.error('Commit failed:', error);
+      console.error('❌ Commit failed:', error);
+      // TODO: Show error toast to user
     } finally {
       setIsCommitting(false);
     }

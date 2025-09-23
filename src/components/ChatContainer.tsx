@@ -18,19 +18,27 @@ export const ChatContainer: React.FC = () => {
   
   // Hooks for functionality
   const { currentProject } = useAppState();
-  const { lastMessage, connectionState, send } = useWebSocket();
+  const { lastMessage, connectionState } = useWebSocket();
   const { handleIncomingMessage } = useMessageHandler(setMessages, setIsWaitingForResponse);
   const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsWaitingForResponse);
   
   // Chat persistence
   const { handleMemoryData } = useChatPersistence(setMessages, connectionState);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isWaitingForResponse]);
 
-  // Handle incoming WebSocket messages - CLEAN APPROACH
+  // 🚀 Stop loading when we get messages
+  useEffect(() => {
+    if (messages.length > 0 && isLoadingHistory) {
+      console.log('✅ Messages loaded, stopping loading state');
+      setIsLoadingHistory(false);
+    }
+  }, [messages.length, isLoadingHistory]);
+
+  // Handle incoming WebSocket messages
   useEffect(() => {
     if (!lastMessage) return;
 
@@ -40,7 +48,6 @@ export const ChatContainer: React.FC = () => {
     if (lastMessage.type === 'data' && lastMessage.data && !lastMessage.data.type) {
       console.log('📨 Memory data received in ChatContainer:', lastMessage.data);
       handleMemoryData(lastMessage.data);
-      setIsLoadingHistory(false);
       return;
     }
 
@@ -55,44 +62,26 @@ export const ChatContainer: React.FC = () => {
     console.log('Letting global handler process:', lastMessage.type);
   }, [lastMessage, handleIncomingMessage, handleMemoryData]);
 
-  // Load chat history when connected
+  // 🚀 Timeout for loading state - don't wait forever
   useEffect(() => {
     if (connectionState === 'connected' && isLoadingHistory) {
-      console.log('Loading chat history...');
-      
-      const loadHistory = async () => {
-        try {
-          await send({
-            type: 'memory_command',
-            method: 'memory.get_recent',
-            params: {
-              session_id: 'peter-eternal',
-              count: 50
-            }
-          });
-        } catch (error) {
-          console.error('Failed to load history:', error);
-          setIsLoadingHistory(false);
-        }
-      };
-      
-      loadHistory();
-    }
-  }, [connectionState, isLoadingHistory, send]);
-
-  // Timeout for loading state
-  useEffect(() => {
-    if (connectionState === 'connected') {
       const timeout = setTimeout(() => {
-        if (isLoadingHistory) {
-          console.log('History load timeout - starting fresh');
-          setIsLoadingHistory(false);
-        }
-      }, 3000);
+        console.log('⏰ History load timeout - starting fresh');
+        setIsLoadingHistory(false);
+      }, 5000); // 5 second timeout
       
       return () => clearTimeout(timeout);
     }
   }, [connectionState, isLoadingHistory]);
+
+  // 🚀 Reset loading state when connection changes
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      setIsLoadingHistory(true);
+    } else if (connectionState === 'disconnected') {
+      setIsLoadingHistory(false);
+    }
+  }, [connectionState]);
 
   return (
     <div className="h-full flex flex-col max-w-3xl mx-auto w-full">
@@ -103,7 +92,7 @@ export const ChatContainer: React.FC = () => {
         </div>
       )}
       
-      {/* Messages area - FIXED SCROLLING */}
+      {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {isLoadingHistory ? (
           <div className="flex items-center justify-center h-full">
@@ -114,6 +103,13 @@ export const ChatContainer: React.FC = () => {
           </div>
         ) : (
           <>
+            {/* 🚀 Show message count for debugging */}
+            {messages.length > 0 && (
+              <div className="text-xs text-gray-500 text-center mb-4 opacity-75">
+                {messages.length} messages loaded
+              </div>
+            )}
+            
             <MessageList 
               messages={messages} 
               isWaitingForResponse={isWaitingForResponse}

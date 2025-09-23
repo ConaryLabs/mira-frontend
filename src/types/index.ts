@@ -46,6 +46,9 @@ export interface Project {
   gitUrl?: string;
   lastAccessed: number;
   created: number;
+  // 🚀 NEW: Add repository attachment info
+  hasRepository?: boolean;
+  repositoryUrl?: string;
 }
 
 export interface Artifact {
@@ -57,6 +60,23 @@ export interface Artifact {
   linkedFile?: string;
   created: number;
   modified: number;
+}
+
+// 🚀 NEW: File system response types
+export interface FileSystemResponse {
+  files?: FileNode[];
+  content?: string;
+  success?: boolean;
+  error?: string;
+}
+
+export interface FileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileNode[];
+  size?: number;
+  modified?: string;
 }
 
 export interface ToolResult {
@@ -80,9 +100,11 @@ export interface ChatMessage extends WebSocketMessage {
   metadata?: {
     timestamp?: number;
     file_path?: string;
-    attachment_id?: string;
     language?: string;
     project_context?: Project;
+    // Remove attachment_id since it's not part of Project
+    repo_root?: string;
+    has_repository?: boolean;
   };
 }
 
@@ -168,7 +190,7 @@ export interface GitChange {
 
 // Hook return types
 export interface WebSocketHook {
-  send: (message: WebSocketMessage) => Promise<void>;
+  send: (message: WebSocketMessage) => Promise<any>; // 🚀 Return response instead of void
   lastMessage: any;
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'error';
   connect: () => void;
