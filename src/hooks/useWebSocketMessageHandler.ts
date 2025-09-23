@@ -4,18 +4,20 @@ import { useAppState } from './useAppState';
 import { useWebSocket } from './useWebSocket';
 
 export const useWebSocketMessageHandler = () => {
-  const { lastMessage } = useWebSocket();
+  const { lastMessage, send } = useWebSocket();
   const { 
     addProject, 
     setCurrentProject, 
     updateGitStatus, 
     addModifiedFile,
-    clearModifiedFiles 
+    clearModifiedFiles,
+    setShowFileExplorer
   } = useAppState();
 
   useEffect(() => {
     if (!lastMessage) return;
 
+    console.log('🔍 WebSocket message received:', lastMessage); // Debug log
     handleMessage(lastMessage);
   }, [lastMessage]);
 
@@ -29,6 +31,14 @@ export const useWebSocketMessageHandler = () => {
     switch (message.type) {
       case 'data':
         if (message.data) {
+          console.log('📦 Handling data message:', message.data); // Debug log
+          handleDataMessage(message.data);
+        }
+        break;
+        
+      case 'response':
+        if (message.data) {
+          console.log('📡 Handling response message:', message.data); // Debug log
           handleDataMessage(message.data);
         }
         break;
@@ -46,16 +56,25 @@ export const useWebSocketMessageHandler = () => {
         break;
         
       default:
-        // Other message types handled by ChatContainer
+        console.log('🤷 Unhandled message type:', message.type);
         break;
     }
   };
 
   const handleDataMessage = (data: any) => {
+    console.log('🎯 Processing data message type:', data.type); // Debug log
+    
+    // Only handle project-specific data that has a type field
+    if (!data.type) {
+      console.log('💭 No type field - letting chat system handle memory data');
+      return; // Let memory data pass through to chat system
+    }
+    
     switch (data.type) {
       case 'project_list':
-        // Update projects in state
+        console.log('📋 Updating project list:', data.projects);
         if (data.projects) {
+          // Clear existing projects and add new ones (full sync)
           data.projects.forEach((project: any) => {
             addProject(project);
           });
@@ -63,23 +82,23 @@ export const useWebSocketMessageHandler = () => {
         break;
 
       case 'project_created':
-        // Add new project to state
+        console.log('✨ New project created:', data.project);
         if (data.project) {
           addProject(data.project);
           setCurrentProject(data.project);
+          console.log('✅ Project added to state and set as current');
         }
         break;
 
       case 'project_updated':
-        // Update existing project
-        console.log('Project updated:', data.project);
+        console.log('📝 Project updated:', data.project);
+        // TODO: Update existing project in state
         break;
 
       case 'git_status':
-        // Update git status in state
+        console.log('🔧 Git status update:', data);
         updateGitStatus(data);
         
-        // Update modified files list
         if (data.modified) {
           clearModifiedFiles();
           data.modified.forEach((file: string) => {
@@ -88,40 +107,64 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
 
-      case 'repository_imported':
-        console.log('Repository imported:', data);
-        // Refresh git status after import
+      case 'memory_stats':
+        console.log('🧠 Memory stats:', data);
+        // Handle memory statistics
         break;
 
-      case 'git_sync_complete':
-        console.log('Git sync complete:', data);
-        clearModifiedFiles();
+      case 'memory_recent':
+        console.log('🕒 Recent memories:', data);
+        // Handle recent memories
         break;
 
-      case 'file_saved':
-        console.log('File saved:', data.path);
-        addModifiedFile(data.path);
+      case 'repo_attached':
+        console.log('🔗 Repository attached:', data);
+        // Repository attachment successful - could trigger a project context refresh
         break;
 
-      case 'search_results':
-        console.log('Search results:', data.results);
+      case 'file_tree':
+        console.log('📁 File tree received:', data);
+        // File tree data for the FileBrowser component
         break;
 
-      case 'complexity_hotspots':
-        console.log('Complexity hotspots:', data.hotspots);
-        break;
-
-      case 'repository_stats':
-        console.log('Repository stats:', data.stats);
-        break;
-
-      case 'supported_languages':
-        console.log('Supported languages:', data.languages);
+      case 'file_content':
+        console.log('📄 File content received:', data);
+        // File content data for the FileBrowser component
         break;
 
       default:
-        console.log('Unhandled data message:', data);
+        // Check if this is a success response to project.create
+        if (data.status === 'success' && !data.type) {
+          console.log('🔄 Got success response, refreshing project list...');
+          // Refresh the project list to get the new project
+          refreshProjectList();
+        } else {
+          console.log('🤷 Unhandled data message type:', data.type || 'undefined');
+        }
         break;
     }
   };
+
+  // Helper function to refresh project list
+  const refreshProjectList = async () => {
+    try {
+      await send({
+        type: 'project_command',
+        method: 'project.list',
+        params: {}
+      });
+    } catch (error) {
+      console.error('❌ Failed to refresh project list:', error);
+    }
+  };
+};
+
+// Export a debug helper to manually check state
+export const debugProjectState = () => {
+  const state = useAppState.getState();
+  console.log('🔍 Current project state:', {
+    currentProject: state.currentProject,
+    projects: state.projects,
+    projectCount: state.projects.length
+  });
 };

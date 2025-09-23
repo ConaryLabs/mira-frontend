@@ -75,15 +75,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onClick={handleSend}
           disabled={!canSend}
           className={`
-            px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2
+            p-2 rounded-md transition-colors
             ${canSend
               ? 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
               : 'bg-slate-600 text-slate-400 cursor-not-allowed'
             }
           `}
+          title="Send message"
         >
           <Send size={16} />
-          Send
         </button>
       </div>
       

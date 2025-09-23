@@ -36,6 +36,7 @@ interface AppState {
   
   // Actions
   setShowArtifacts: (show: boolean) => void;
+  setShowFileExplorer: (show: boolean) => void; // ADDED THIS
   setCurrentProject: (project: Project | null) => void;
   addProject: (project: Project) => void;
   updateGitStatus: (status: any) => void;
@@ -73,6 +74,7 @@ export const useAppState = create<AppState>()(
 
       // Actions
       setShowArtifacts: (show) => set({ showArtifacts: show }),
+      setShowFileExplorer: (show) => set({ showFileExplorer: show }), // ADDED THIS
       
       setCurrentProject: (project) => {
         set({ currentProject: project });

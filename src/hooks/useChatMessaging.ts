@@ -30,18 +30,32 @@ export const useChatMessaging = (
     setMessages(prev => [...prev, userMessage]);
     setIsWaitingForResponse(true);
 
-    // Send message - the backend already uses peter-eternal as default
+    // Enhanced message with full project and repository context
     const message = {
       type: 'chat',
       content,
       project_id: currentProject?.id || null,
       metadata: {
-        session_id: getSessionId(), // This should be peter-eternal
+        session_id: getSessionId(),
         timestamp: Date.now(),
+        // Enhanced project context
+        project_name: currentProject?.name || null,
+        has_repository: currentProject ? true : false,
+        context_type: currentProject ? 'project' : 'general',
+        // Repository context (you'll need to get this from your app state)
+        repo_root: currentProject ? `./repos/${currentProject.id}` : null, // Approximate
+        branch: 'main', // You'll need to get actual branch from git state
+        // Add a context flag that tells Mira to look for attached repositories
+        request_repo_context: currentProject ? true : false
       }
     };
 
-    console.log('Sending message with session:', getSessionId(), JSON.stringify(message));
+    console.log('Sending enhanced message with project context:', {
+      session: getSessionId(),
+      project: currentProject?.name || 'none',
+      hasRepo: currentProject ? 'yes' : 'no',
+      message: JSON.stringify(message, null, 2)
+    });
 
     try {
       await send(message);
@@ -60,5 +74,10 @@ export const useChatMessaging = (
     }]);
   }, [setMessages]);
 
-  return { handleSend, addSystemMessage };
+  // Add a helper to notify when project context changes
+  const addProjectContextMessage = useCallback((projectName: string) => {
+    addSystemMessage(`Now working in project: ${projectName}`);
+  }, [addSystemMessage]);
+
+  return { handleSend, addSystemMessage, addProjectContextMessage };
 };

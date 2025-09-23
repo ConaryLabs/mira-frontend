@@ -1,44 +1,63 @@
 // src/components/Header.tsx
-import React, { useState } from 'react';
-import { ChevronDown, GitBranch, Play, Command, Archive } from 'lucide-react';
+import React from 'react';
+import { FileText, Play, GitBranch } from 'lucide-react';
 import { ProjectDropdown } from './ProjectDropdown';
-import { QuickFileOpen } from './QuickFileOpen';
-import { RunButton } from './RunButton';
-import { CommitPushButton } from './CommitPushButton';
 import { useAppState } from '../hooks/useAppState';
 
 export const Header: React.FC = () => {
-  const { currentProject, modifiedFiles, currentBranch } = useAppState();
+  const { currentProject, showFileExplorer, setShowFileExplorer } = useAppState();
 
   return (
-    <header className="h-14 border-b border-slate-700 bg-slate-900 px-4 flex items-center">
-      {/* Left: Project selector like Claude's model selector */}
-      <div className="flex items-center gap-3">
+    <header className="h-14 border-b border-gray-700 px-4 flex items-center bg-gray-900">
+      {/* Left: Project selector */}
+      <div className="flex items-center gap-4">
         <ProjectDropdown />
         
-        {/* Branch indicator (subtle, only when project exists) */}
-        {currentProject && currentBranch && (
-          <div className="flex items-center gap-1 text-xs text-slate-500">
-            <GitBranch size={12} />
-            <span>{currentBranch}</span>
-          </div>
+        {/* File explorer toggle - only show if project selected */}
+        {currentProject && (
+          <button
+            onClick={() => setShowFileExplorer(!showFileExplorer)}
+            className={`p-2 rounded-md transition-colors ${
+              showFileExplorer 
+                ? 'bg-blue-600 text-white' 
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+            }`}
+            title="Toggle file explorer"
+          >
+            <FileText size={16} />
+          </button>
         )}
       </div>
       
-      {/* Center: Git status (subtle feedback) */}
+      {/* Center: Project context indicator */}
       <div className="flex-1 flex justify-center">
-        {modifiedFiles.length > 0 && (
-          <div className="flex items-center gap-1 text-sm text-amber-400">
-            <span>{modifiedFiles.length} file{modifiedFiles.length !== 1 ? 's' : ''} modified</span>
+        {currentProject && (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span>Working in project:</span>
+            <span className="text-blue-400 font-medium">{currentProject.name}</span>
           </div>
         )}
       </div>
       
-      {/* Right: The dev action buttons */}
+      {/* Right: Action buttons */}
       <div className="flex items-center gap-2">
-        <QuickFileOpen />
-        <RunButton />
-        <CommitPushButton />
+        {currentProject && (
+          <>
+            <button
+              className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
+              title="Run project"
+            >
+              <Play size={16} />
+            </button>
+            
+            <button
+              className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
+              title="Git operations"
+            >
+              <GitBranch size={16} />
+            </button>
+          </>
+        )}
       </div>
     </header>
   );

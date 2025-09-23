@@ -18,83 +18,84 @@ export const ChatContainer: React.FC = () => {
   
   // Hooks for functionality
   const { currentProject } = useAppState();
-  const { lastMessage, connectionState } = useWebSocket();
+  const { lastMessage, connectionState, send } = useWebSocket();
   const { handleIncomingMessage } = useMessageHandler(setMessages, setIsWaitingForResponse);
   const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsWaitingForResponse);
   
   // Chat persistence
-  const { getSessionId, handleMemoryData } = useChatPersistence(setMessages, connectionState);
+  const { handleMemoryData } = useChatPersistence(setMessages, connectionState);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isWaitingForResponse]);
 
-  // Handle incoming WebSocket messages
+  // Handle incoming WebSocket messages - CLEAN APPROACH
   useEffect(() => {
     if (!lastMessage) return;
 
-    try {
-      // Check if it's memory data first (could be in response or data format)
-      if (lastMessage.type === 'data' && lastMessage.data) {
-        handleMemoryData(lastMessage.data);
-        setIsLoadingHistory(false);
-      } else if (lastMessage.type === 'response' && lastMessage.data) {
-        // Memory commands might come back as response type
-        const responseData = lastMessage.data;
-        if (responseData.memories || responseData.stats || responseData.session_id) {
-          console.log('Handling memory data from response:', responseData);
-          handleMemoryData(responseData);
-          setIsLoadingHistory(false);
-        }
-      }
-      
-      // Then handle as regular chat message
-      handleIncomingMessage(lastMessage);
-    } catch (error) {
-      console.error('Error handling message:', error, lastMessage);
-      setIsLoadingHistory(false); // Stop loading on error
+    console.log('ChatContainer processing message:', lastMessage.type);
+
+    // Handle memory data (no type field in data)
+    if (lastMessage.type === 'data' && lastMessage.data && !lastMessage.data.type) {
+      console.log('📨 Memory data received in ChatContainer:', lastMessage.data);
+      handleMemoryData(lastMessage.data);
+      setIsLoadingHistory(false);
+      return;
     }
+
+    // Handle chat responses
+    if (lastMessage.type === 'response' && lastMessage.data && lastMessage.data.content) {
+      console.log('💬 Chat response received in ChatContainer');
+      handleIncomingMessage(lastMessage);
+      return;
+    }
+
+    // Let global handler deal with everything else (project commands, etc.)
+    console.log('Letting global handler process:', lastMessage.type);
   }, [lastMessage, handleIncomingMessage, handleMemoryData]);
 
-  // Stop showing loading state when connected (in case no history)
+  // Load chat history when connected
   useEffect(() => {
-    if (connectionState === 'connected') {
-      // Give it a moment to load history, then assume no history exists
-      const timeout = setTimeout(() => {
-        if (isLoadingHistory) {
-          console.log('No history loaded after timeout - assuming empty conversation');
+    if (connectionState === 'connected' && isLoadingHistory) {
+      console.log('Loading chat history...');
+      
+      const loadHistory = async () => {
+        try {
+          await send({
+            type: 'memory_command',
+            method: 'memory.get_recent',
+            params: {
+              session_id: 'peter-eternal',
+              count: 50
+            }
+          });
+        } catch (error) {
+          console.error('Failed to load history:', error);
           setIsLoadingHistory(false);
         }
-      }, 3000); // Increased timeout
+      };
+      
+      loadHistory();
+    }
+  }, [connectionState, isLoadingHistory, send]);
+
+  // Timeout for loading state
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      const timeout = setTimeout(() => {
+        if (isLoadingHistory) {
+          console.log('History load timeout - starting fresh');
+          setIsLoadingHistory(false);
+        }
+      }, 3000);
       
       return () => clearTimeout(timeout);
     }
   }, [connectionState, isLoadingHistory]);
 
-  // Add system message when project changes (but only after history loads)
-  useEffect(() => {
-    if (currentProject && !isLoadingHistory) {
-      addSystemMessage(`Now working in project: ${currentProject.name}`);
-    }
-  }, [currentProject?.id, addSystemMessage, isLoadingHistory]);
-
-  // Show loading state while fetching history
-  if (isLoadingHistory && connectionState === 'connected') {
-    return (
-      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full bg-slate-900">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
-            <div className="text-slate-400 text-sm">Loading conversation...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full bg-slate-900">
+    <div className="h-full flex flex-col max-w-3xl mx-auto w-full">
       {/* Connection status */}
       {connectionState !== 'connected' && (
         <div className="bg-yellow-900/50 border-b border-yellow-700/50 px-4 py-2 text-sm text-yellow-200">
@@ -102,21 +103,37 @@ export const ChatContainer: React.FC = () => {
         </div>
       )}
       
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 bg-slate-900">
-        <MessageList messages={messages} isWaitingForResponse={isWaitingForResponse} />
-        <div ref={messagesEndRef} />
+      {/* Messages area - FIXED SCROLLING */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        {isLoadingHistory ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex items-center gap-2 text-slate-400">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-400"></div>
+              Loading chat history...
+            </div>
+          </div>
+        ) : (
+          <>
+            <MessageList 
+              messages={messages} 
+              isWaitingForResponse={isWaitingForResponse}
+            />
+            <div ref={messagesEndRef} />
+          </>
+        )}
       </div>
       
       {/* Input area */}
-      <div className="border-t border-slate-700 px-4 py-4 bg-slate-900">
+      <div className="border-t border-slate-700 p-4">
         <ChatInput 
           onSend={handleSend} 
-          disabled={connectionState !== 'connected' || isWaitingForResponse}
+          disabled={isWaitingForResponse || connectionState !== 'connected'}
           placeholder={
-            currentProject 
-              ? `Message Mira about ${currentProject.name}...`
-              : "Message Mira..."
+            connectionState !== 'connected' 
+              ? 'Connecting...' 
+              : currentProject 
+                ? `Message Mira (${currentProject.name})...`
+                : 'Message Mira...'
           }
         />
       </div>
