@@ -36,9 +36,11 @@ interface AppState {
   
   // Actions
   setShowArtifacts: (show: boolean) => void;
-  setShowFileExplorer: (show: boolean) => void; // ADDED THIS
+  setShowFileExplorer: (show: boolean) => void;
   setCurrentProject: (project: Project | null) => void;
   addProject: (project: Project) => void;
+  // 🚀 ADDED: Missing setProjects method
+  setProjects: (projects: Project[] | ((prev: Project[]) => Project[])) => void;
   updateGitStatus: (status: any) => void;
   addModifiedFile: (file: string) => void;
   removeModifiedFile: (file: string) => void;
@@ -74,7 +76,7 @@ export const useAppState = create<AppState>()(
 
       // Actions
       setShowArtifacts: (show) => set({ showArtifacts: show }),
-      setShowFileExplorer: (show) => set({ showFileExplorer: show }), // ADDED THIS
+      setShowFileExplorer: (show) => set({ showFileExplorer: show }),
       
       setCurrentProject: (project) => {
         set({ currentProject: project });
@@ -87,6 +89,15 @@ export const useAppState = create<AppState>()(
       addProject: (project) => set((state) => ({
         projects: [...state.projects, project]
       })),
+      
+      // 🚀 ADDED: Missing setProjects method that accepts both direct arrays and functions
+      setProjects: (projectsOrUpdater) => {
+        if (typeof projectsOrUpdater === 'function') {
+          set((state) => ({ projects: projectsOrUpdater(state.projects) }));
+        } else {
+          set({ projects: projectsOrUpdater });
+        }
+      },
       
       updateGitStatus: (status) => set({ gitStatus: status }),
       

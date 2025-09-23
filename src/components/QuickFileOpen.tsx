@@ -1,4 +1,4 @@
-// src/components/QuickFileOpen.tsx
+// src/components/QuickFileOpen.tsx - FIXED to use Git API
 // Modern Cmd+P style file picker that opens files as artifacts
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -32,6 +32,15 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
 
   // Load files when modal opens
   useEffect(() => {
+    console.log('🔍 QuickFileOpen: Modal state changed:', {
+      isOpen,
+      hasProject: !!currentProject,
+      projectId: currentProject?.id,
+      projectName: currentProject?.name,
+      hasRepository: currentProject?.hasRepository,
+      repositoryUrl: currentProject?.repositoryUrl
+    });
+
     if (isOpen && currentProject?.hasRepository) {
       loadProjectFiles();
       inputRef.current?.focus();
@@ -54,27 +63,61 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   }, [query, files]);
 
   const loadProjectFiles = async () => {
-    if (!currentProject?.hasRepository) return;
+    if (!currentProject) {
+      console.log('❌ No current project for file loading');
+      return;
+    }
+    
+    if (!currentProject.hasRepository) {
+      console.log('❌ Current project has no repository:', {
+        projectId: currentProject.id,
+        projectName: currentProject.name,
+        hasRepository: currentProject.hasRepository,
+        repositoryUrl: currentProject.repositoryUrl
+      });
+      return;
+    }
+    
+    console.log('✅ Loading files for project with repository:', {
+      projectId: currentProject.id,
+      hasRepository: currentProject.hasRepository,
+      repositoryUrl: currentProject.repositoryUrl
+    });
     
     setLoading(true);
     try {
-      // 🚀 Fixed: Use project_id instead of attachment_id
+      // 🚀 CRITICAL FIX: Use git.tree instead of file_system_command
+      console.log('📤 Requesting git.tree for project:', currentProject.id);
       const response = await send({
-        type: 'file_system_command',
-        method: 'file.list',
+        type: 'git_command',
+        method: 'git.tree',
         params: {
-          path: '.',
-          recursive: true,
-          project_id: currentProject.id  // Use project_id, let backend handle attachment lookup
+          project_id: currentProject.id
         }
-      }) as FileSystemResponse;
+      });
 
-      if (response?.files) {
-        const flatFiles = flattenFiles(response.files);
-        setFiles(flatFiles);
+      console.log('📁 Git tree response:', response);
+      
+      // 🚀 FIX: Handle git tree response structure
+      if (response && typeof response === 'object') {
+        // The git.tree response should have a 'tree' field
+        if ('tree' in response && Array.isArray(response.tree)) {
+          const flatFiles = flattenFiles(response.tree as FileNode[]);
+          console.log('📂 Processed files:', flatFiles.length);
+          setFiles(flatFiles);
+        } else if (Array.isArray(response)) {
+          // Sometimes the response might be the array directly
+          const flatFiles = flattenFiles(response as FileNode[]);
+          console.log('📂 Processed files (direct array):', flatFiles.length);
+          setFiles(flatFiles);
+        } else {
+          console.log('❌ No tree data in git response:', response);
+        }
+      } else {
+        console.log('❌ Invalid git tree response format:', response);
       }
     } catch (error) {
-      console.error('Failed to load files:', error);
+      console.error('❌ Failed to load git tree:', error);
     } finally {
       setLoading(false);
     }
@@ -87,10 +130,16 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     for (const node of nodes) {
       const fullPath = prefix ? `${prefix}/${node.name}` : node.name;
       
-      if (node.type === 'file') {
+      // 🚀 FIX: Handle different file node formats from backend safely
+      const isFile = node.type === 'file' || 
+                     (node as any).node_type === 'File' || 
+                     (!(node as any).is_directory && !node.children);
+      
+      if (isFile) {
         result.push({
           ...node,
-          path: fullPath
+          path: fullPath,
+          type: 'file'
         });
       } else if (node.children) {
         result.push(...flattenFiles(node.children, fullPath));
@@ -157,38 +206,66 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
 
   const handleFileSelect = async (file: FileNode) => {
     try {
-      // 🚀 Fixed: Use project_id instead of attachment_id
+      console.log('📄 Loading file via git.file:', file.path);
+      
+      // 🚀 CRITICAL FIX: Use git.file instead of file_system_command
       const response = await send({
-        type: 'file_system_command',
-        method: 'file.read',
+        type: 'git_command',
+        method: 'git.file',
         params: {
-          path: file.path,
-          project_id: currentProject?.id  // Use project_id, let backend handle attachment lookup
+          project_id: currentProject?.id,
+          file_path: file.path
         }
-      }) as FileSystemResponse;
+      });
 
-      if (response?.content) {
-        // Detect file type
-        const fileType = getFileType(file.name);
+      console.log('📄 Git file response:', response);
+      
+      // 🚀 FIX: Handle git file response structure
+      if (response && typeof response === 'object') {
+        let content = '';
         
-        // Create artifact from file content
-        const artifact = {
-          id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          title: file.name,
-          content: response.content,
-          type: fileType.mimeType,
-          language: fileType.language,
-          linkedFile: file.path,
-          created: Date.now(),
-          modified: Date.now()
-        };
+        // The git.file response should have a 'content' field
+        if ('content' in response && typeof response.content === 'string') {
+          content = response.content;
+        } else {
+          console.log('❌ No content in git file response');
+          return;
+        }
 
-        addArtifact(artifact);
+        if (content) {
+          // Detect file type
+          const fileType = getFileType(file.name);
+          
+          // Create artifact from file content
+          const artifact = {
+            id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: file.name,
+            content: content,
+            type: fileType.mimeType,
+            language: fileType.language,
+            linkedFile: file.path,
+            created: Date.now(),
+            modified: Date.now()
+          };
+
+          console.log('✅ Created artifact from git file:', {
+            title: artifact.title,
+            type: artifact.type,
+            language: artifact.language,
+            size: artifact.content.length
+          });
+
+          addArtifact(artifact);
+        } else {
+          console.log('❌ No content in git file response');
+        }
+      } else {
+        console.log('❌ Invalid git file response format');
       }
 
       onClose();
     } catch (error) {
-      console.error('Failed to load file:', error);
+      console.error('❌ Failed to load git file:', error);
     }
   };
 
@@ -229,9 +306,18 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
     
-    // You could return different icons based on file type
-    // For now, just use the generic file icon
-    return <File size={16} className="text-gray-400" />;
+    switch (ext) {
+      case 'rs': return '🦀';
+      case 'ts': case 'tsx': return '🔷';
+      case 'js': case 'jsx': return '📜';
+      case 'md': return '📝';
+      case 'json': return '{}';
+      case 'html': return '🌐';
+      case 'css': return '🎨';
+      case 'py': return '🐍';
+      case 'toml': case 'yml': case 'yaml': return '⚙️';
+      default: return '📄';
+    }
   };
 
   // Handle clicking outside to close
@@ -251,7 +337,7 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
 
   if (!isOpen) return null;
 
-  // 🚀 Show different content if no repository
+  // Show different content if no repository
   if (!currentProject?.hasRepository) {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center pt-20">
@@ -265,6 +351,13 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
             <p className="text-gray-400 text-sm mb-4">
               This project doesn't have a repository attached. Import a repository to browse files.
             </p>
+            {/* Debug info for development */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="text-xs text-gray-500 bg-gray-800 p-2 rounded mb-4">
+                Debug: hasRepo={String(currentProject?.hasRepository)} | 
+                url={currentProject?.repositoryUrl || 'none'}
+              </div>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -295,6 +388,12 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
             placeholder="Search files... (use fuzzy search: 'mr' matches 'main.rs')"
             className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none text-lg"
           />
+          {/* Debug info for development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="text-xs text-gray-500 mx-2">
+              {files.length} files
+            </div>
+          )}
           <button
             onClick={onClose}
             className="ml-3 p-1 text-gray-400 hover:text-gray-200 rounded"
@@ -307,11 +406,12 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
         <div className="max-h-96 overflow-y-auto">
           {loading ? (
             <div className="p-8 text-center text-gray-400">
-              Loading files...
+              <div className="animate-spin rounded-full h-6 h-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
+              Loading repository files...
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="p-8 text-center text-gray-400">
-              {query ? 'No files match your search' : 'No files found'}
+              {query ? 'No files match your search' : files.length === 0 ? 'No files found in repository' : 'Start typing to search files...'}
             </div>
           ) : (
             <div className="py-2">
@@ -322,48 +422,32 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
                   className={clsx(
                     'w-full flex items-center px-4 py-3 text-left transition-colors',
                     index === selectedIndex
-                      ? 'bg-blue-600/20 border-l-2 border-blue-500'
-                      : 'hover:bg-gray-800'
+                      ? 'bg-blue-600 text-white'
+                      : 'hover:bg-gray-800 text-gray-200'
                   )}
                 >
-                  <div className="mr-3">
-                    {getFileIcon(file.name)}
-                  </div>
+                  <span className="text-lg mr-3">{getFileIcon(file.name)}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center">
-                      <span className="text-white font-medium truncate">
-                        {file.name}
-                      </span>
-                      {/* Highlight matching parts of the query */}
-                      {query && (
-                        <span className="ml-2 text-xs text-gray-400">
-                          in {file.path}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-400 truncate">
-                      {file.path}
-                    </div>
+                    <div className="font-medium truncate">{file.name}</div>
+                    <div className="text-sm opacity-60 truncate">{file.path}</div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {file.size && formatFileSize(file.size)}
-                  </div>
+                  <File size={16} className="opacity-40 ml-2" />
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Footer with shortcuts */}
-        <div className="flex items-center justify-between p-3 border-t border-gray-700 text-xs text-gray-400">
-          <div className="flex items-center gap-4">
-            <span>↑↓ navigate</span>
-            <span>↵ open</span>
-            <span>esc close</span>
-          </div>
+        {/* Footer */}
+        <div className="px-4 py-3 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Command size={12} />
-            <span>P</span>
+            <span>Quick Open</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span>↑↓ to navigate</span>
+            <span>↵ to open</span>
+            <span>esc to close</span>
           </div>
         </div>
       </div>
@@ -371,21 +455,12 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   );
 };
 
-// Utility function to format file sizes
-function formatFileSize(bytes: number): string {
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  if (bytes === 0) return '0 B';
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return Math.round((bytes / Math.pow(1024, i)) * 10) / 10 + ' ' + sizes[i];
-}
-
-// Hook to handle global Cmd+P shortcut
+// Hook for global Cmd+P handler
 export const useQuickFileOpen = () => {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+P or Ctrl+P
       if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
         e.preventDefault();
         setIsOpen(true);
@@ -399,6 +474,6 @@ export const useQuickFileOpen = () => {
   return {
     isOpen,
     open: () => setIsOpen(true),
-    close: () => setIsOpen(false),
+    close: () => setIsOpen(false)
   };
 };
