@@ -2,10 +2,19 @@
 import React from 'react';
 import { FileText, Play, GitBranch } from 'lucide-react';
 import { ProjectDropdown } from './ProjectDropdown';
-import { useAppState } from '../hooks/useAppState';
+import ArtifactToggle from './ArtifactToggle';
+import { useAppState, useArtifactState } from '../hooks/useAppState';
 
 export const Header: React.FC = () => {
-  const { currentProject, showFileExplorer, setShowFileExplorer } = useAppState();
+  const { 
+    currentProject, 
+    showFileExplorer, 
+    setShowFileExplorer,
+    showArtifacts,
+    setShowArtifacts
+  } = useAppState();
+  
+  const { artifacts } = useArtifactState();
 
   return (
     <header className="h-14 border-b border-gray-700 px-4 flex items-center bg-gray-900">
@@ -57,6 +66,17 @@ export const Header: React.FC = () => {
               <GitBranch size={16} />
             </button>
           </>
+        )}
+        
+        {/* 🚀 NEW: Artifact Toggle - show when there are artifacts OR project selected */}
+        {(artifacts.length > 0 || currentProject) && (
+          <ArtifactToggle
+            isOpen={showArtifacts}
+            onClick={() => setShowArtifacts(!showArtifacts)}
+            artifactCount={artifacts.length}
+            hasGitRepos={currentProject ? true : false}
+            isDark={true} // Header is always dark
+          />
         )}
       </div>
     </header>

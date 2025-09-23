@@ -1,6 +1,4 @@
 // src/components/CodeBlock.tsx
-// NEW FILE
-
 import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 
@@ -24,45 +22,59 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language, isDark }) 
   };
 
   return (
-    <div className={`relative group my-2 rounded-lg overflow-hidden ${
-      isDark ? 'bg-gray-900' : 'bg-gray-100'
-    }`}>
-      {/* Language label */}
-      {language && (
-        <div className={`px-4 py-2 text-xs font-medium ${
-          isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-600'
-        }`}>
-          {language}
-        </div>
-      )}
-      
-      {/* Code content */}
-      <div className="relative">
-        <pre className={`p-4 overflow-x-auto text-sm ${
-          isDark ? 'text-gray-300' : 'text-gray-800'
-        }`}>
-          <code className="font-mono">{code}</code>
-        </pre>
+    <div className={`
+      relative group my-4 rounded-lg overflow-hidden border
+      ${isDark 
+        ? 'bg-gray-950 border-gray-700' 
+        : 'bg-gray-50 border-gray-200'
+      }
+      shadow-sm
+    `}>
+      {/* Header bar with language and copy button */}
+      <div className={`
+        flex items-center justify-between px-4 py-2 border-b text-xs
+        ${isDark 
+          ? 'bg-gray-900 border-gray-700 text-gray-400' 
+          : 'bg-gray-100 border-gray-200 text-gray-600'
+        }
+      `}>
+        <span className="font-medium">
+          {language || 'text'}
+        </span>
         
-        {/* Copy button */}
         <button
           onClick={copyToClipboard}
           className={`
-            absolute top-2 right-2 p-2 rounded-md
-            opacity-0 group-hover:opacity-100 transition-opacity
+            flex items-center gap-1.5 px-2 py-1 rounded transition-colors
             ${isDark 
-              ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' 
-              : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
+              ? 'hover:bg-gray-800 text-gray-400 hover:text-gray-300' 
+              : 'hover:bg-gray-200 text-gray-600 hover:text-gray-700'
             }
           `}
           title="Copy code"
         >
           {copied ? (
-            <Check size={16} className="text-green-500" />
+            <>
+              <Check size={12} className="text-green-500" />
+              <span className="text-green-500">Copied</span>
+            </>
           ) : (
-            <Copy size={16} />
+            <>
+              <Copy size={12} />
+              <span>Copy</span>
+            </>
           )}
         </button>
+      </div>
+      
+      {/* Code content */}
+      <div className="relative overflow-x-auto">
+        <pre className={`
+          p-4 text-sm leading-relaxed
+          ${isDark ? 'text-gray-300' : 'text-gray-800'}
+        `}>
+          <code className="font-mono block">{code}</code>
+        </pre>
       </div>
     </div>
   );

@@ -1,11 +1,18 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
 import { User, Bot, Copy, ThumbsUp, ThumbsDown, Settings } from 'lucide-react';
+import { CodeBlock } from './CodeBlock';
 import type { Message } from '../types';
 
 interface MessageBubbleProps {
   message: Message;
   isLast?: boolean;
+}
+
+interface CodeBlockMatch {
+  language: string;
+  code: string;
+  fullMatch: string;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast }) => {
@@ -38,15 +45,82 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
     }
   };
 
-  const formatContent = (content: string) => {
-    // Basic markdown-like formatting
-    return content
-      .split('\n')
-      .map((line, index) => (
-        <p key={index} className={index > 0 ? 'mt-2' : ''}>
-          {line}
-        </p>
-      ));
+  // Parse content for code blocks and regular text
+  const parseContent = (content: string) => {
+    const parts: (string | CodeBlockMatch)[] = [];
+    
+    // Regex to match code blocks with language or without
+    const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+    
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      // Add text before the code block
+      if (match.index > lastIndex) {
+        parts.push(content.slice(lastIndex, match.index));
+      }
+      
+      // Add the code block
+      parts.push({
+        language: match[1] || 'text',
+        code: match[2].trim(),
+        fullMatch: match[0]
+      });
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add remaining text after last code block
+    if (lastIndex < content.length) {
+      parts.push(content.slice(lastIndex));
+    }
+    
+    // If no code blocks found, return the whole content as text
+    if (parts.length === 0) {
+      parts.push(content);
+    }
+    
+    return parts;
+  };
+
+  // Format regular text content (preserve line breaks and indentation)
+  const formatTextContent = (text: string) => {
+    if (!text.trim()) return null;
+    
+    return (
+      <div className="whitespace-pre-wrap font-sans">
+        {text}
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    const parts = parseContent(message.content);
+    
+    return (
+      <div className="space-y-3">
+        {parts.map((part, index) => {
+          if (typeof part === 'string') {
+            return (
+              <div key={index}>
+                {formatTextContent(part)}
+              </div>
+            );
+          } else {
+            // It's a code block
+            return (
+              <CodeBlock
+                key={index}
+                code={part.code}
+                language={part.language}
+                isDark={true} // Assuming dark theme
+              />
+            );
+          }
+        })}
+      </div>
+    );
   };
 
   const getMessageStyle = () => {
@@ -63,7 +137,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
   if (message.role === 'system') {
     return (
       <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-400 italic">
-        {formatContent(message.content)}
+        <div className="whitespace-pre-wrap">
+          {message.content}
+        </div>
       </div>
     );
   }
@@ -90,9 +166,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast })
           )}
         </div>
 
-        {/* Message body */}
-        <div className="prose prose-sm max-w-none text-slate-200">
-          {formatContent(message.content)}
+        {/* Message body - with proper code formatting */}
+        <div className="text-slate-200">
+          {renderContent()}
         </div>
 
         {/* Tool results */}

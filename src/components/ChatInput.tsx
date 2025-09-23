@@ -16,6 +16,28 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [content, setContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Auto-resize function
+  const resizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto';
+    
+    if (content.trim() === '') {
+      // If content is empty, reset to single line height
+      textarea.style.height = '24px'; // min-h-[24px] from CSS
+    } else {
+      // Set height based on content, with max height
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    }
+  };
+
+  // Resize when content changes
+  useEffect(() => {
+    resizeTextarea();
+  }, [content]);
+
   // Keep focus in textarea
   useEffect(() => {
     if (!disabled && textareaRef.current) {
@@ -27,7 +49,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (!content.trim() || disabled) return;
     
     const messageToSend = content.trim();
-    setContent(''); // Clear immediately for better UX
+    setContent(''); // This will trigger the useEffect to resize
     
     try {
       await onSend(messageToSend);
@@ -47,11 +69,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value);
-    
-    // Auto-resize textarea
-    const textarea = e.target;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    // Note: We removed the resize logic from here since it's now in useEffect
   };
 
   const canSend = !disabled && content.trim().length > 0;
@@ -86,8 +104,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <Send size={16} />
         </button>
       </div>
-      
-      {/* No status text needed - ThinkingIndicator handles all feedback */}
     </div>
   );
 };
