@@ -1,4 +1,5 @@
 // src/components/ChatContainer.tsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
@@ -25,16 +26,37 @@ export const ChatContainer: React.FC = () => {
   // Chat persistence
   const { handleMemoryData } = useChatPersistence(setMessages, connectionState);
 
+  // Scroll to bottom function
+  const scrollToBottom = (immediate = false) => {
+    if (!messagesEndRef.current) return;
+    
+    if (immediate) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
+    } else {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use setTimeout to ensure DOM has updated
+    const scrollTimeout = setTimeout(() => {
+      scrollToBottom();
+    }, 100);
+    
+    return () => clearTimeout(scrollTimeout);
   }, [messages, isWaitingForResponse]);
 
-  // 🚀 Stop loading when we get messages
+  // Immediate scroll to bottom when loading completes (page reload)
   useEffect(() => {
     if (messages.length > 0 && isLoadingHistory) {
-      console.log('✅ Messages loaded, stopping loading state');
+      console.log('Messages loaded, stopping loading state');
       setIsLoadingHistory(false);
+      
+      // Immediate scroll to bottom for initial load
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 200);
     }
   }, [messages.length, isLoadingHistory]);
 
@@ -46,14 +68,14 @@ export const ChatContainer: React.FC = () => {
 
     // Handle memory data (no type field in data)
     if (lastMessage.type === 'data' && lastMessage.data && !lastMessage.data.type) {
-      console.log('📨 Memory data received in ChatContainer:', lastMessage.data);
+      console.log('Memory data received in ChatContainer:', lastMessage.data);
       handleMemoryData(lastMessage.data);
       return;
     }
 
     // Handle chat responses
     if (lastMessage.type === 'response' && lastMessage.data && lastMessage.data.content) {
-      console.log('💬 Chat response received in ChatContainer');
+      console.log('Chat response received in ChatContainer');
       handleIncomingMessage(lastMessage);
       return;
     }
@@ -62,11 +84,11 @@ export const ChatContainer: React.FC = () => {
     console.log('Letting global handler process:', lastMessage.type);
   }, [lastMessage, handleIncomingMessage, handleMemoryData]);
 
-  // 🚀 Timeout for loading state - don't wait forever
+  // Timeout for loading state - don't wait forever
   useEffect(() => {
     if (connectionState === 'connected' && isLoadingHistory) {
       const timeout = setTimeout(() => {
-        console.log('⏰ History load timeout - starting fresh');
+        console.log('History load timeout - starting fresh');
         setIsLoadingHistory(false);
       }, 5000); // 5 second timeout
       
@@ -74,7 +96,7 @@ export const ChatContainer: React.FC = () => {
     }
   }, [connectionState, isLoadingHistory]);
 
-  // 🚀 Reset loading state when connection changes
+  // Reset loading state when connection changes
   useEffect(() => {
     if (connectionState === 'connected') {
       setIsLoadingHistory(true);
@@ -103,7 +125,7 @@ export const ChatContainer: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* 🚀 Show message count for debugging */}
+            {/* Show message count for debugging */}
             {messages.length > 0 && (
               <div className="text-xs text-gray-500 text-center mb-4 opacity-75">
                 {messages.length} messages loaded

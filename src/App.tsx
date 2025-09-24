@@ -1,4 +1,5 @@
 // src/App.tsx
+
 import React from 'react';
 import { Header } from './components/Header';
 import { ChatContainer } from './components/ChatContainer';
@@ -9,7 +10,7 @@ import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import './App.css';
 
 function App() {
-  const { showArtifacts } = useAppState(); // 🚀 Removed showFileExplorer
+  const { showArtifacts } = useAppState();
   
   // Handle all WebSocket messages globally
   useWebSocketMessageHandler();
@@ -19,13 +20,11 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
-      {/* Header with project controls */}
-      <Header />
+      {/* Header with project controls - pass the quickFileOpen function */}
+      <Header onQuickFileOpen={quickFileOpen.open} />
       
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 🚀 REMOVED: Old file explorer sidebar completely */}
-        
         {/* Chat column - center, always visible */}
         <div className="flex-1 flex">
           <ChatContainer />

@@ -1,4 +1,5 @@
-// src/components/ProjectDropdown.tsx - With Project Delete Functionality
+// src/components/ProjectDropdown.tsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Plus, Folder, GitBranch, Trash2, MoreHorizontal } from 'lucide-react';
 import { useAppState } from '../hooks/useAppState';
@@ -13,59 +14,50 @@ export const ProjectDropdown: React.FC = () => {
   const [repoUrl, setRepoUrl] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isAttaching, setIsAttaching] = useState(false);
-  const [hasLoadedProjects, setHasLoadedProjects] = useState(false);
-  const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null); // Track which project menu is open
-  const [isDeletingProject, setIsDeletingProject] = useState<string | null>(null); // Track deletion state
+  const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState<string | null>(null);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { currentProject, projects, setCurrentProject } = useAppState();
   const { send, connectionState } = useWebSocket();
 
-  // Debug effect to watch project changes
+  // Debug project state changes
   useEffect(() => {
-    console.log('🎯 ProjectDropdown: Projects updated', { 
+    console.log('ProjectDropdown: Projects updated', { 
       projectCount: projects.length, 
       currentProject: currentProject?.name,
       hasRepository: currentProject?.hasRepository,
-      connectionState,
-      hasLoadedProjects
+      connectionState
     });
-  }, [projects, currentProject, connectionState, hasLoadedProjects]);
+  }, [projects, currentProject, connectionState]);
 
-  // Force project load when connected
+  // Load projects when connected
   useEffect(() => {
-    if (connectionState === 'connected' && !hasLoadedProjects) {
-      console.log('🔄 Loading projects after connection established...');
+    if (connectionState === 'connected') {
+      console.log('Loading projects after connection established...');
       
       const loadProjects = async () => {
         try {
-          console.log('📤 Sending project.list request...');
+          console.log('Sending project.list request...');
           await send({
             type: 'project_command',
             method: 'project.list',
             params: {}
           });
-          console.log('✅ Project list request sent successfully');
-          setHasLoadedProjects(true);
+          console.log('Project list request sent successfully');
         } catch (error) {
-          console.error('❌ Failed to load projects:', error);
+          console.error('Failed to load projects:', error);
         }
       };
       
+      // Small delay to let connection settle
       const timer = setTimeout(() => {
         loadProjects();
       }, 100);
       
       return () => clearTimeout(timer);
     }
-  }, [connectionState, hasLoadedProjects, send]);
-
-  // Reset project load flag when disconnected
-  useEffect(() => {
-    if (connectionState === 'disconnected') {
-      setHasLoadedProjects(false);
-    }
-  }, [connectionState]);
+  }, [connectionState, send]);
 
   // Close dropdown and menus when clicking outside
   useEffect(() => {
@@ -95,7 +87,7 @@ export const ProjectDropdown: React.FC = () => {
   }, [isOpen, showNewProject, showAttachRepo]);
 
   const handleProjectSelect = (project: Project) => {
-    console.log('🔄 Selecting project:', {
+    console.log('Selecting project:', {
       id: project.id,
       name: project.name,
       hasRepository: project.hasRepository,
@@ -107,21 +99,20 @@ export const ProjectDropdown: React.FC = () => {
   };
 
   const handleExitProject = () => {
-    console.log('🔄 Exiting project');
+    console.log('Exiting project');
     setCurrentProject(null);
     setIsOpen(false);
   };
 
   const handleDeleteProject = async (project: Project, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent project selection
+    event.stopPropagation();
 
-    // Confirm deletion
     if (!confirm(`Delete project "${project.name}"?\n\nThis will permanently delete the project and all its data. This cannot be undone.`)) {
       return;
     }
 
     setIsDeletingProject(project.id);
-    console.log('🗑️ Deleting project:', project.name);
+    console.log('Deleting project:', project.name);
 
     try {
       await send({
@@ -130,14 +121,13 @@ export const ProjectDropdown: React.FC = () => {
         params: { id: project.id }
       });
 
-      console.log('✅ Project deleted successfully');
+      console.log('Project deleted successfully');
 
-      // If we just deleted the current project, exit it
       if (currentProject?.id === project.id) {
         setCurrentProject(null);
       }
 
-      // Refresh project list
+      // Refresh project list after deletion
       setTimeout(async () => {
         try {
           await send({
@@ -146,12 +136,12 @@ export const ProjectDropdown: React.FC = () => {
             params: {}
           });
         } catch (error) {
-          console.error('❌ Failed to refresh projects after deletion:', error);
+          console.error('Failed to refresh projects after deletion:', error);
         }
       }, 500);
 
     } catch (error) {
-      console.error('❌ Failed to delete project:', error);
+      console.error('Failed to delete project:', error);
       alert('Failed to delete project. Please try again.');
     } finally {
       setIsDeletingProject(null);
@@ -160,113 +150,88 @@ export const ProjectDropdown: React.FC = () => {
   };
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim() || isCreating) return;
-    
+    if (!newProjectName.trim()) return;
+
     setIsCreating(true);
-    console.log('📁 Creating project:', newProjectName.trim());
-    
     try {
-      const createMessage = {
+      await send({
         type: 'project_command',
         method: 'project.create',
-        params: { 
+        params: {
           name: newProjectName.trim(),
           description: '',
           tags: []
         }
-      };
-      
-      console.log('📤 Sending project.create:', createMessage);
-      await send(createMessage);
-      
-      console.log('✅ Project create command sent successfully');
+      });
       
       setNewProjectName('');
       setShowNewProject(false);
       setIsOpen(false);
     } catch (error) {
-      console.error('❌ Failed to create project:', error);
+      console.error('Failed to create project:', error);
     } finally {
       setIsCreating(false);
     }
   };
 
   const handleAttachRepository = async () => {
-    if (!repoUrl.trim() || !currentProject || isAttaching) return;
-    
+    if (!repoUrl.trim() || !currentProject) return;
+
     setIsAttaching(true);
-    console.log('🔗 Attaching repository:', repoUrl.trim(), 'to project:', currentProject.id);
-    
     try {
+      console.log('Step 1: Attaching repository:', repoUrl.trim(), 'to project:', currentProject.id);
+
       // Step 1: Attach the repository (creates attachment record)
-      const attachMessage = {
+      await send({
         type: 'git_command',
         method: 'git.attach',
-        params: { 
+        params: {
           project_id: currentProject.id,
           repo_url: repoUrl.trim()
         }
-      };
-      
-      console.log('📤 Sending git.attach:', attachMessage);
-      await send(attachMessage);
-      console.log('✅ Repository attached');
+      });
+      console.log('Repository attached successfully');
+
+      // Wait a bit for the database transaction to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('Step 2: Cloning repository...');
       
       // Step 2: Clone the repository locally
-      const cloneMessage = {
+      await send({
         type: 'git_command',
         method: 'git.clone',
-        params: { project_id: currentProject.id }
-      };
-      
-      console.log('📤 Sending git.clone:', cloneMessage);
-      await send(cloneMessage);
-      console.log('✅ Repository cloned');
+        params: {
+          project_id: currentProject.id
+        }
+      });
+      console.log('Repository cloned successfully');
+
+      // Wait a bit for cloning to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('Step 3: Importing and analyzing codebase...');
       
       // Step 3: Import and analyze the codebase
-      const importMessage = {
-        type: 'git_command', 
+      await send({
+        type: 'git_command',
         method: 'git.import',
-        params: { project_id: currentProject.id }
-      };
-      
-      console.log('📤 Sending git.import:', importMessage);
-      await send(importMessage);
-      console.log('✅ Repository imported and analyzed');
-      
-      console.log('🎉 Repository fully attached, cloned, and analyzed!');
-      
-      // Enhanced refresh logic
-      console.log('🔄 Reloading projects to update repository status...');
-      
+        params: {
+          project_id: currentProject.id
+        }
+      });
+      console.log('Repository imported and analyzed successfully');
+
+      // Refresh projects to update repository status
       setTimeout(async () => {
         try {
-          // Refresh project list
           await send({
             type: 'project_command',
             method: 'project.list',
             params: {}
           });
-          
-          // Force current project refresh by clearing and letting list handler set it
-          const tempProjectId = currentProject.id;
-          setCurrentProject(null);
-          
-          // Give the project list time to update, then restore current project
-          setTimeout(() => {
-            const updatedProjects = useAppState.getState().projects;
-            const updatedCurrentProject = updatedProjects.find(p => p.id === tempProjectId);
-            if (updatedCurrentProject) {
-              console.log('🔄 Restoring current project with updated status:', {
-                hasRepository: updatedCurrentProject.hasRepository,
-                repositoryUrl: updatedCurrentProject.repositoryUrl
-              });
-              setCurrentProject(updatedCurrentProject);
-            }
-          }, 500);
-          
         } catch (error) {
-          console.error('❌ Failed to refresh project list:', error);
+          console.error('Failed to refresh project list:', error);
         }
       }, 2000);
       
@@ -274,7 +239,7 @@ export const ProjectDropdown: React.FC = () => {
       setShowAttachRepo(false);
       setIsOpen(false);
     } catch (error) {
-      console.error('❌ Failed to attach repository:', error);
+      console.error('Failed to attach repository:', error);
     } finally {
       setIsAttaching(false);
     }
@@ -295,22 +260,6 @@ export const ProjectDropdown: React.FC = () => {
     }
   };
 
-  // Manual refresh for debugging
-  const handleManualRefresh = async () => {
-    console.log('🔄 Manual project refresh requested...');
-    try {
-      setHasLoadedProjects(false);
-      await send({
-        type: 'project_command',
-        method: 'project.list',
-        params: {}
-      });
-      console.log('✅ Manual refresh sent');
-    } catch (error) {
-      console.error('❌ Manual refresh failed:', error);
-    }
-  };
-
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Trigger button */}
@@ -325,190 +274,213 @@ export const ProjectDropdown: React.FC = () => {
         <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown menu */}
+      {/* Dropdown */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-64 bg-gray-900 border border-gray-700 rounded-lg shadow-lg z-50">
-          {/* Exit project option */}
+        <div className="absolute top-full left-0 mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+          {/* Current project section */}
           {currentProject && (
-            <button
-              onClick={handleExitProject}
-              className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2 text-sm text-gray-300 border-b border-gray-700"
-            >
-              <span className="text-lg">←</span>
-              <span>Exit Project (General Chat)</span>
-            </button>
-          )}
-
-          {/* Debug refresh button */}
-          {process.env.NODE_ENV === 'development' && (
-            <button
-              onClick={handleManualRefresh}
-              className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2 text-sm text-yellow-300 border-b border-gray-700"
-            >
-              <span>🔄</span>
-              <span>Debug: Reload Projects</span>
-            </button>
-          )}
-
-          {/* Project list */}
-          <div className="max-h-64 overflow-y-auto">
-            {connectionState !== 'connected' ? (
-              <div className="px-3 py-2 text-sm text-gray-400">
-                Connecting...
-              </div>
-            ) : !hasLoadedProjects ? (
-              <div className="px-3 py-2 text-sm text-gray-400">
-                Loading projects...
-              </div>
-            ) : projects.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-400">
-                No projects yet
-              </div>
-            ) : (
-              projects.map((project) => (
-                <div key={project.id} className="relative group">
+            <div className="border-b border-slate-700 p-2">
+              <div className="text-xs text-slate-400 mb-1">Current Project</div>
+              <div className="flex items-center p-2 bg-slate-700/50 rounded">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                  {currentProject.hasRepository && (
+                    <GitBranch size={14} className="text-green-400 flex-shrink-0" />
+                  )}
+                  <span className="font-medium truncate">{currentProject.name}</span>
+                </div>
+                
+                {/* Project actions */}
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <button
-                    onClick={() => handleProjectSelect(project)}
-                    className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2 text-gray-200"
+                    onClick={handleExitProject}
+                    className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-600"
                   >
-                    <Folder size={14} />
-                    <span className="truncate flex-1">{project.name}</span>
-                    
-                    {/* Repository indicator */}
-                    {project.hasRepository && (
-                      <div title="Has repository">
-                        <GitBranch size={12} className="text-green-400" />
-                      </div>
-                    )}
-                    
-                    {/* Current project indicator */}
-                    {currentProject?.id === project.id && (
-                      <span className="text-blue-400 text-xs">✓</span>
-                    )}
+                    Exit
                   </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProjectMenuOpen(projectMenuOpen === currentProject.id ? null : currentProject.id);
+                    }}
+                    className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-white"
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                </div>
 
+                {/* Current project menu */}
+                {projectMenuOpen === currentProject.id && (
+                  <div className="absolute right-4 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10">
+                    <button
+                      onClick={(e) => handleDeleteProject(currentProject, e)}
+                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2"
+                      disabled={isDeletingProject === currentProject.id}
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Available projects */}
+          <div className="p-2">
+            <div className="text-xs text-slate-400 mb-2">
+              {projects.length === 0 ? 'No projects available' : 'Available Projects'}
+            </div>
+            
+            {projects.filter(p => p.id !== currentProject?.id).map((project) => (
+              <div key={project.id} className="relative">
+                <button
+                  onClick={() => handleProjectSelect(project)}
+                  className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-left group"
+                  disabled={isDeletingProject === project.id}
+                >
+                  <Folder size={16} className="text-slate-400 flex-shrink-0" />
+                  {project.hasRepository && (
+                    <GitBranch size={14} className="text-green-400 flex-shrink-0" />
+                  )}
+                  <span className="flex-1 truncate">{project.name}</span>
+                  
                   {/* Project menu button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setProjectMenuOpen(projectMenuOpen === project.id ? null : project.id);
                     }}
-                    className="absolute right-1 top-1 bottom-1 w-6 opacity-0 group-hover:opacity-100 hover:bg-gray-700 rounded flex items-center justify-center transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded"
+                    disabled={isDeletingProject === project.id}
                   >
-                    <MoreHorizontal size={12} />
+                    <MoreHorizontal size={14} />
                   </button>
-
-                  {/* Project menu */}
-                  {projectMenuOpen === project.id && (
-                    <div className="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50">
-                      <button
-                        onClick={(e) => handleDeleteProject(project, e)}
-                        disabled={isDeletingProject === project.id}
-                        className="w-full px-3 py-2 text-left hover:bg-gray-700 flex items-center gap-2 text-sm text-red-400 disabled:opacity-50"
-                      >
-                        <Trash2 size={12} />
-                        <span>{isDeletingProject === project.id ? 'Deleting...' : 'Delete Project'}</span>
-                      </button>
-                    </div>
+                  
+                  {isDeletingProject === project.id && (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-400"></div>
                   )}
-                </div>
-              ))
-            )}
+                </button>
+
+                {/* Project dropdown menu */}
+                {projectMenuOpen === project.id && (
+                  <div className="absolute right-0 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10">
+                    <button
+                      onClick={(e) => handleDeleteProject(project, e)}
+                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2"
+                      disabled={isDeletingProject === project.id}
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
-          {/* Divider */}
-          <div className="border-t border-gray-700" />
-
-          {/* Create new project section */}
-          {showNewProject ? (
-            <div className="p-3">
-              <input
-                type="text"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="Project name..."
-                className="w-full px-3 py-2 text-sm border border-gray-600 rounded-md bg-gray-800 text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
-                autoFocus
-                disabled={isCreating}
-              />
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleCreateProject}
-                  disabled={!newProjectName.trim() || isCreating}
-                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCreating ? 'Creating...' : 'Create'}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowNewProject(false);
-                    setNewProjectName('');
-                  }}
-                  className="px-3 py-1 text-sm text-gray-400 hover:text-gray-200"
-                  disabled={isCreating}
-                >
-                  Cancel
-                </button>
+          {/* Action buttons */}
+          <div className="border-t border-slate-700 p-2 space-y-2">
+            {/* New project section */}
+            {showNewProject ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  placeholder="Project name"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateProject}
+                    disabled={!newProjectName.trim() || isCreating}
+                    className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    {isCreating ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b border-white"></div>
+                        Creating...
+                      </>
+                    ) : (
+                      'Create'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowNewProject(false);
+                      setNewProjectName('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : showAttachRepo ? (
-            <div className="p-3">
-              <input
-                type="text"
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="https://github.com/username/repo.git"
-                className="w-full px-3 py-2 text-sm border border-gray-600 rounded-md bg-gray-800 text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
-                autoFocus
-                disabled={isAttaching}
-              />
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleAttachRepository}
-                  disabled={!repoUrl.trim() || isAttaching}
-                  className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isAttaching ? 'Processing...' : 'Attach, Clone & Analyze'}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAttachRepo(false);
-                    setRepoUrl('');
-                  }}
-                  className="px-3 py-1 text-sm text-gray-400 hover:text-gray-200"
-                  disabled={isAttaching}
-                >
-                  Cancel
-                </button>
-              </div>
-              <div className="text-xs text-gray-500 mt-2">
-                This will clone and analyze the repository for code intelligence
-              </div>
-            </div>
-          ) : (
-            <div>
+            ) : (
               <button
                 onClick={() => setShowNewProject(true)}
-                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2 text-sm text-gray-400"
+                className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-sm"
               >
-                <Plus size={14} />
+                <Plus size={16} />
                 New project
               </button>
-              
-              {/* Attach repository option */}
-              {currentProject && !currentProject.hasRepository && (
-                <button
-                  onClick={() => setShowAttachRepo(true)}
-                  className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2 text-sm text-gray-400"
-                >
-                  <GitBranch size={14} />
-                  Attach Repository
-                </button>
-              )}
-            </div>
-          )}
+            )}
+
+            {/* Attach repository section */}
+            {currentProject && (
+              <>
+                {showAttachRepo ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
+                      onKeyDown={handleKeyPress}
+                      placeholder="Git repository URL"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAttachRepository}
+                        disabled={!repoUrl.trim() || isAttaching}
+                        className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium flex items-center justify-center gap-2"
+                      >
+                        {isAttaching ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3 w-3 border-b border-white"></div>
+                            Attaching...
+                          </>
+                        ) : (
+                          'Attach'
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAttachRepo(false);
+                          setRepoUrl('');
+                        }}
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowAttachRepo(true)}
+                    className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-sm"
+                  >
+                    <GitBranch size={16} />
+                    Attach Repository
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -1,5 +1,4 @@
-// src/components/QuickFileOpen.tsx - FIXED to use Git API
-// Modern Cmd+P style file picker that opens files as artifacts
+// src/components/QuickFileOpen.tsx
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Command, File, Folder, Search, X } from 'lucide-react';
@@ -7,7 +6,14 @@ import clsx from 'clsx';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAppState } from '../hooks/useAppState';
 import { useArtifacts } from '../hooks/useArtifacts';
-import type { FileNode, FileSystemResponse } from '../types';
+
+interface FileNode {
+  name: string;
+  path: string;
+  type?: 'file' | 'directory';
+  node_type?: 'File' | 'Directory';
+  children?: FileNode[];
+}
 
 interface QuickFileOpenProps {
   isOpen: boolean;
@@ -26,13 +32,34 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const { send } = useWebSocket();
+  const { send, lastMessage } = useWebSocket();
   const { currentProject } = useAppState();
   const { addArtifact } = useArtifacts();
 
+  // Listen for git.tree responses only
+  useEffect(() => {
+    if (!lastMessage || lastMessage.type !== 'data') return;
+    
+    const data = lastMessage.data;
+    
+    // Only handle git.tree responses here
+    if (data?.type === 'file_tree' && isOpen) {
+      console.log('Git tree response received:', data);
+      if (data.tree && Array.isArray(data.tree)) {
+        const flatFiles = flattenFiles(data.tree);
+        console.log('Processed files:', flatFiles.length);
+        setFiles(flatFiles);
+        setLoading(false);
+      }
+    }
+    
+    // Remove ALL file_content handling from here
+    // Let the global handler create artifacts
+  }, [lastMessage, isOpen]);
+
   // Load files when modal opens
   useEffect(() => {
-    console.log('🔍 QuickFileOpen: Modal state changed:', {
+    console.log('QuickFileOpen: Modal state changed:', {
       isOpen,
       hasProject: !!currentProject,
       projectId: currentProject?.id,
@@ -45,16 +72,16 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
       loadProjectFiles();
       inputRef.current?.focus();
     } else {
-      // Reset state when modal closes
       setQuery('');
       setSelectedIndex(0);
+      setFiles([]);
     }
   }, [isOpen, currentProject]);
 
   // Filter files based on query
   useEffect(() => {
     if (!query.trim()) {
-      setFilteredFiles(files.slice(0, 50)); // Show first 50 files
+      setFilteredFiles(files.slice(0, 50));
     } else {
       const filtered = fuzzySearch(files, query.toLowerCase()).slice(0, 20);
       setFilteredFiles(filtered);
@@ -63,153 +90,95 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   }, [query, files]);
 
   const loadProjectFiles = async () => {
-    if (!currentProject) {
-      console.log('❌ No current project for file loading');
+    if (!currentProject?.hasRepository) {
+      console.log('No repository attached to current project');
       return;
     }
     
-    if (!currentProject.hasRepository) {
-      console.log('❌ Current project has no repository:', {
-        projectId: currentProject.id,
-        projectName: currentProject.name,
-        hasRepository: currentProject.hasRepository,
-        repositoryUrl: currentProject.repositoryUrl
-      });
-      return;
-    }
-    
-    console.log('✅ Loading files for project with repository:', {
-      projectId: currentProject.id,
-      hasRepository: currentProject.hasRepository,
-      repositoryUrl: currentProject.repositoryUrl
-    });
-    
+    console.log('Loading git tree for project:', currentProject.id);
     setLoading(true);
+    
     try {
-      // 🚀 CRITICAL FIX: Use git.tree instead of file_system_command
-      console.log('📤 Requesting git.tree for project:', currentProject.id);
-      const response = await send({
+      await send({
         type: 'git_command',
         method: 'git.tree',
         params: {
           project_id: currentProject.id
         }
       });
-
-      console.log('📁 Git tree response:', response);
-      
-      // 🚀 FIX: Handle git tree response structure
-      if (response && typeof response === 'object') {
-        // The git.tree response should have a 'tree' field
-        if ('tree' in response && Array.isArray(response.tree)) {
-          const flatFiles = flattenFiles(response.tree as FileNode[]);
-          console.log('📂 Processed files:', flatFiles.length);
-          setFiles(flatFiles);
-        } else if (Array.isArray(response)) {
-          // Sometimes the response might be the array directly
-          const flatFiles = flattenFiles(response as FileNode[]);
-          console.log('📂 Processed files (direct array):', flatFiles.length);
-          setFiles(flatFiles);
-        } else {
-          console.log('❌ No tree data in git response:', response);
-        }
-      } else {
-        console.log('❌ Invalid git tree response format:', response);
-      }
     } catch (error) {
-      console.error('❌ Failed to load git tree:', error);
-    } finally {
+      console.error('Failed to load git tree:', error);
       setLoading(false);
     }
   };
 
   // Flatten nested file tree into searchable array
-  const flattenFiles = (nodes: FileNode[], prefix = ''): FileNode[] => {
+  const flattenFiles = (nodes: FileNode[]): FileNode[] => {
     const result: FileNode[] = [];
     
-    for (const node of nodes) {
-      const fullPath = prefix ? `${prefix}/${node.name}` : node.name;
-      
-      // 🚀 FIX: Handle different file node formats from backend safely
+    const addNode = (node: FileNode) => {
       const isFile = node.type === 'file' || 
-                     (node as any).node_type === 'File' || 
-                     (!(node as any).is_directory && !node.children);
+                     node.node_type === 'File' || 
+                     (!node.children || node.children.length === 0);
       
       if (isFile) {
         result.push({
-          ...node,
-          path: fullPath,
+          name: node.name,
+          path: node.path,
           type: 'file'
         });
-      } else if (node.children) {
-        result.push(...flattenFiles(node.children, fullPath));
       }
-    }
+      
+      if (node.children && node.children.length > 0) {
+        node.children.forEach(addNode);
+      }
+    };
     
+    nodes.forEach(addNode);
     return result;
   };
 
-  // Fuzzy search implementation
-  const fuzzySearch = (fileList: FileNode[], searchQuery: string): FileNode[] => {
-    return fileList
-      .map(file => {
-        const fileName = file.name.toLowerCase();
-        const filePath = file.path.toLowerCase();
+  // Simple fuzzy search
+  const fuzzySearch = (items: FileNode[], query: string): FileNode[] => {
+    if (!query.trim()) return items;
+    
+    return items
+      .filter(item => {
+        const fileName = item.name.toLowerCase();
+        const filePath = item.path.toLowerCase();
         
-        // Exact matches get highest priority
-        if (fileName.includes(searchQuery) || filePath.includes(searchQuery)) {
-          let score = 0;
-          
-          // Boost score for exact filename matches
-          if (fileName === searchQuery) score += 100;
-          else if (fileName.startsWith(searchQuery)) score += 50;
-          else if (fileName.includes(searchQuery)) score += 25;
-          
-          // Boost for path matches
-          if (filePath.includes(searchQuery)) score += 10;
-          
-          // Boost for common file types
-          if (fileName.endsWith('.rs') || fileName.endsWith('.ts') || fileName.endsWith('.tsx')) {
-            score += 5;
+        if (fileName.includes(query) || filePath.includes(query)) {
+          return true;
+        }
+        
+        let queryIndex = 0;
+        for (let i = 0; i < fileName.length && queryIndex < query.length; i++) {
+          if (fileName[i] === query[queryIndex]) {
+            queryIndex++;
           }
-          
-          return { file, score };
         }
-        return null;
+        return queryIndex === query.length;
       })
-      .filter(Boolean)
-      .sort((a, b) => b!.score - a!.score)
-      .map(item => item!.file);
+      .sort((a, b) => {
+        const aName = a.name.toLowerCase();
+        const bName = b.name.toLowerCase();
+        
+        if (aName.includes(query) && !bName.includes(query)) return -1;
+        if (!aName.includes(query) && bName.includes(query)) return 1;
+        
+        const aDepth = a.path.split('/').length;
+        const bDepth = b.path.split('/').length;
+        
+        return aDepth - bDepth;
+      });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    switch (e.key) {
-      case 'Escape':
-        onClose();
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedIndex(prev => Math.min(prev + 1, filteredFiles.length - 1));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedIndex(prev => Math.max(prev - 1, 0));
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (filteredFiles[selectedIndex]) {
-          handleFileSelect(filteredFiles[selectedIndex]);
-        }
-        break;
-    }
-  };
-
+  // Handle file selection
   const handleFileSelect = async (file: FileNode) => {
     try {
-      console.log('📄 Loading file via git.file:', file.path);
+      console.log('Loading file content:', file.path);
       
-      // 🚀 CRITICAL FIX: Use git.file instead of file_system_command
-      const response = await send({
+      await send({
         type: 'git_command',
         method: 'git.file',
         params: {
@@ -217,108 +186,62 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
           file_path: file.path
         }
       });
-
-      console.log('📄 Git file response:', response);
       
-      // 🚀 FIX: Handle git file response structure
-      if (response && typeof response === 'object') {
-        let content = '';
-        
-        // The git.file response should have a 'content' field
-        if ('content' in response && typeof response.content === 'string') {
-          content = response.content;
-        } else {
-          console.log('❌ No content in git file response');
-          return;
-        }
-
-        if (content) {
-          // Detect file type
-          const fileType = getFileType(file.name);
-          
-          // Create artifact from file content
-          const artifact = {
-            id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            title: file.name,
-            content: content,
-            type: fileType.mimeType,
-            language: fileType.language,
-            linkedFile: file.path,
-            created: Date.now(),
-            modified: Date.now()
-          };
-
-          console.log('✅ Created artifact from git file:', {
-            title: artifact.title,
-            type: artifact.type,
-            language: artifact.language,
-            size: artifact.content.length
-          });
-
-          addArtifact(artifact);
-        } else {
-          console.log('❌ No content in git file response');
-        }
-      } else {
-        console.log('❌ Invalid git file response format');
-      }
-
+      // Close modal immediately - global handler will create artifact
       onClose();
     } catch (error) {
-      console.error('❌ Failed to load git file:', error);
+      console.error('Failed to request file:', file.path, error);
     }
   };
 
-  const getFileType = (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase();
+  // Get file icon without emojis
+  const getFileIcon = (fileName: string): string => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
     
     switch (ext) {
-      case 'rs':
-        return { mimeType: 'text/rust' as const, language: 'rust' };
-      case 'ts':
-        return { mimeType: 'application/typescript' as const, language: 'typescript' };
-      case 'tsx':
-        return { mimeType: 'application/typescript' as const, language: 'typescript' };
-      case 'js':
-        return { mimeType: 'application/javascript' as const, language: 'javascript' };
-      case 'jsx':
-        return { mimeType: 'application/javascript' as const, language: 'javascript' };
-      case 'md':
-        return { mimeType: 'text/markdown' as const, language: 'markdown' };
-      case 'json':
-        return { mimeType: 'application/json' as const, language: 'json' };
-      case 'html':
-        return { mimeType: 'text/html' as const, language: 'html' };
-      case 'css':
-        return { mimeType: 'text/css' as const, language: 'css' };
-      case 'py':
-        return { mimeType: 'text/python' as const, language: 'python' };
-      case 'toml':
-        return { mimeType: 'text/plain' as const, language: 'toml' };
-      case 'yml':
-      case 'yaml':
-        return { mimeType: 'text/plain' as const, language: 'yaml' };
-      default:
-        return { mimeType: 'text/plain' as const, language: 'plaintext' };
+      case 'rs': return 'RS';
+      case 'ts': case 'tsx': return 'TS';
+      case 'js': case 'jsx': return 'JS';
+      case 'md': return 'MD';
+      case 'json': return 'JSON';
+      case 'html': return 'HTML';
+      case 'css': return 'CSS';
+      case 'py': return 'PY';
+      case 'toml': case 'yml': case 'yaml': return 'CFG';
+      default: return 'FILE';
     }
   };
 
-  const getFileIcon = (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    
-    switch (ext) {
-      case 'rs': return '🦀';
-      case 'ts': case 'tsx': return '🔷';
-      case 'js': case 'jsx': return '📜';
-      case 'md': return '📝';
-      case 'json': return '{}';
-      case 'html': return '🌐';
-      case 'css': return '🎨';
-      case 'py': return '🐍';
-      case 'toml': case 'yml': case 'yaml': return '⚙️';
-      default: return '📄';
-    }
-  };
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+      
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedIndex(i => Math.min(i + 1, filteredFiles.length - 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedIndex(i => Math.max(i - 1, 0));
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (filteredFiles[selectedIndex]) {
+            handleFileSelect(filteredFiles[selectedIndex]);
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          onClose();
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, selectedIndex, filteredFiles, onClose]);
 
   // Handle clicking outside to close
   useEffect(() => {
@@ -349,20 +272,13 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
             <File size={48} className="mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">No Repository</h3>
             <p className="text-gray-400 text-sm mb-4">
-              This project doesn't have a repository attached. Import a repository to browse files.
+              This project doesn't have a repository attached. Attach a repository to browse files.
             </p>
-            {/* Debug info for development */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="text-xs text-gray-500 bg-gray-800 p-2 rounded mb-4">
-                Debug: hasRepo={String(currentProject?.hasRepository)} | 
-                url={currentProject?.repositoryUrl || 'none'}
-              </div>
-            )}
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white font-medium"
             >
-              Got it
+              Close
             </button>
           </div>
         </div>
@@ -374,43 +290,45 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center pt-20">
       <div 
         ref={modalRef}
-        className="w-full max-w-2xl bg-gray-900 rounded-xl shadow-2xl border border-gray-700"
+        className="w-full max-w-2xl bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col max-h-[70vh]"
       >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <Search size={20} className="text-gray-400" />
+            <span className="font-medium text-white">Quick Open</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-800 rounded-md text-gray-400 hover:text-white"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
         {/* Search input */}
-        <div className="flex items-center p-4 border-b border-gray-700">
-          <Search size={20} className="text-gray-400 mr-3" />
+        <div className="p-4 border-b border-gray-700">
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search files... (use fuzzy search: 'mr' matches 'main.rs')"
-            className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none text-lg"
+            placeholder="Search files..."
+            className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
           />
-          {/* Debug info for development */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="text-xs text-gray-500 mx-2">
-              {files.length} files
-            </div>
-          )}
-          <button
-            onClick={onClose}
-            className="ml-3 p-1 text-gray-400 hover:text-gray-200 rounded"
-          >
-            <X size={20} />
-          </button>
         </div>
 
-        {/* Results */}
-        <div className="max-h-96 overflow-y-auto">
+        {/* File list */}
+        <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-8 text-center text-gray-400">
-              <div className="animate-spin rounded-full h-6 h-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
-              Loading repository files...
+            <div className="flex items-center justify-center py-12">
+              <div className="flex items-center gap-3 text-gray-400">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400"></div>
+                Loading files...
+              </div>
             </div>
           ) : filteredFiles.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">
+            <div className="flex items-center justify-center py-12 text-gray-400">
               {query ? 'No files match your search' : files.length === 0 ? 'No files found in repository' : 'Start typing to search files...'}
             </div>
           ) : (
@@ -426,7 +344,7 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
                       : 'hover:bg-gray-800 text-gray-200'
                   )}
                 >
-                  <span className="text-lg mr-3">{getFileIcon(file.name)}</span>
+                  <span className="text-xs px-2 py-1 bg-gray-700 rounded font-mono mr-3">{getFileIcon(file.name)}</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{file.name}</div>
                     <div className="text-sm opacity-60 truncate">{file.path}</div>
@@ -445,9 +363,9 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
             <span>Quick Open</span>
           </div>
           <div className="flex items-center gap-4">
-            <span>↑↓ to navigate</span>
-            <span>↵ to open</span>
-            <span>esc to close</span>
+            <span>↑↓ navigate</span>
+            <span>↵ open</span>
+            <span>esc close</span>
           </div>
         </div>
       </div>

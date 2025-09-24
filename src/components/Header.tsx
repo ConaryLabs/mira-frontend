@@ -1,21 +1,24 @@
 // src/components/Header.tsx
+
 import React from 'react';
 import { Play, GitBranch, Command } from 'lucide-react';
 import { ProjectDropdown } from './ProjectDropdown';
 import ArtifactToggle from './ArtifactToggle';
 import { CommitPushButton } from './CommitPushButton';
 import { useAppState, useArtifactState } from '../hooks/useAppState';
-import { useQuickFileOpen } from './QuickFileOpen';
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  onQuickFileOpen: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
   const { 
     currentProject, 
     showArtifacts,
     setShowArtifacts
-  } = useAppState(); // 🚀 Removed file explorer state
+  } = useAppState();
   
   const { artifacts } = useArtifactState();
-  const { open: openQuickFileOpen } = useQuickFileOpen();
 
   return (
     <header className="h-14 border-b border-gray-700 px-4 flex items-center bg-gray-900">
@@ -23,10 +26,10 @@ export const Header: React.FC = () => {
       <div className="flex items-center gap-4">
         <ProjectDropdown />
         
-        {/* 🚀 NEW: Direct Quick File Open (Cmd+P) - only show if project with repo */}
+        {/* Quick File Open (Cmd+P) - only show if project with repo */}
         {currentProject?.hasRepository && (
           <button
-            onClick={openQuickFileOpen}
+            onClick={onQuickFileOpen}
             className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
             title="Quick Open (⌘P)"
           >
@@ -43,7 +46,7 @@ export const Header: React.FC = () => {
             <span className="text-blue-400 font-medium">{currentProject.name}</span>
             {currentProject.hasRepository && (
               <span className="px-2 py-1 bg-green-900/30 text-green-300 rounded text-xs">
-                📁 Repository
+                Repository
               </span>
             )}
           </div>
@@ -73,7 +76,7 @@ export const Header: React.FC = () => {
             onClick={() => setShowArtifacts(!showArtifacts)}
             artifactCount={artifacts.length}
             hasGitRepos={currentProject?.hasRepository || false}
-            isDark={true} // Header is always dark
+            isDark={true}
           />
         )}
       </div>
