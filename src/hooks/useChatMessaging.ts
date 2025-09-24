@@ -1,4 +1,6 @@
 // src/hooks/useChatMessaging.ts
+// Enhanced with full file context integration
+
 import { useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { useAppState, useArtifactState } from './useAppState';
@@ -12,7 +14,7 @@ export const useChatMessaging = (
 ) => {
   const { send } = useWebSocket();
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
-  const { activeArtifact } = useArtifactState(); // 🚀 This is the KEY addition
+  const { activeArtifact } = useArtifactState(); // KEY: Access active artifact
 
   // Use the eternal session ID that matches backend
   const getSessionId = useCallback(() => {
@@ -33,6 +35,9 @@ export const useChatMessaging = (
         case 'html': return 'html';
         case 'css': return 'css';
         case 'json': return 'json';
+        case 'toml': return 'toml';
+        case 'yaml': case 'yml': return 'yaml';
+        case 'sh': case 'bash': return 'shell';
         default: return 'plaintext';
       }
     }
@@ -66,7 +71,7 @@ export const useChatMessaging = (
     setMessages(prev => [...prev, userMessage]);
     setIsWaitingForResponse(true);
 
-    // 🔥 CRITICAL: Enhanced message with FULL context
+    // CRITICAL: Enhanced message with FULL context including active file
     const message = {
       type: 'chat',
       content,
@@ -75,19 +80,21 @@ export const useChatMessaging = (
         session_id: getSessionId(),
         timestamp: Date.now(),
         
-        // 🚀 FILE CONTEXT - This is what makes Mira actually intelligent!
-        file_path: activeArtifact?.linkedFile || activeArtifact?.title,
-        file_content: activeArtifact?.content,
+        // FILE CONTEXT - The missing piece that makes Mira see your files!
+        file_path: activeArtifact?.linkedFile || null,
+        file_content: activeArtifact?.content || null, 
         language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : null,
         
-        // Additional file context that backend can use
-        artifact_id: activeArtifact?.id,
-        artifact_type: activeArtifact?.type,
+        // Additional file context
+        artifact_id: activeArtifact?.id || null,
+        artifact_type: activeArtifact?.type || null,
+        artifact_title: activeArtifact?.title || null,
         file_size: activeArtifact?.content?.length || 0,
         
-        // Project context (already exists but enhanced)
+        // Project context (enhanced)
         project_name: currentProject?.name || null,
         has_repository: currentProject?.hasRepository || false,
+        repository_url: currentProject?.repositoryUrl || null,
         context_type: currentProject ? 'project' : 'general',
         
         // Git context
@@ -102,7 +109,8 @@ export const useChatMessaging = (
       }
     };
 
-    console.log('🚀 Sending ENHANCED message with full context:', {
+    // Enhanced logging to show context being sent
+    console.log('Sending ENHANCED message with full context:', {
       session: getSessionId(),
       project: currentProject?.name || 'none',
       hasRepo: currentProject?.hasRepository ? 'yes' : 'no',
@@ -110,7 +118,9 @@ export const useChatMessaging = (
       fileSize: activeArtifact?.content?.length || 0,
       language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : 'none',
       modifiedFiles: modifiedFiles.length,
-      // Don't log file content - too verbose
+      artifactId: activeArtifact?.id || 'none',
+      // Don't log actual file content - too verbose, but confirm it exists
+      hasFileContent: !!activeArtifact?.content
     });
 
     try {
@@ -130,12 +140,12 @@ export const useChatMessaging = (
     }]);
   }, [setMessages]);
 
-  // Add a helper to notify when project context changes
+  // Add helper to notify when project context changes
   const addProjectContextMessage = useCallback((projectName: string) => {
     addSystemMessage(`Now working in project: ${projectName}`);
   }, [addSystemMessage]);
 
-  // 🚀 NEW: Add file context message when switching files
+  // Add file context message when switching files
   const addFileContextMessage = useCallback((fileName: string) => {
     addSystemMessage(`Now viewing: ${fileName}`);
   }, [addSystemMessage]);
@@ -144,6 +154,6 @@ export const useChatMessaging = (
     handleSend, 
     addSystemMessage, 
     addProjectContextMessage,
-    addFileContextMessage  // Export this for use when switching artifacts
+    addFileContextMessage
   };
 };
