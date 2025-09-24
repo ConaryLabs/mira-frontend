@@ -1,10 +1,10 @@
 // src/components/Header.tsx
-
 import React from 'react';
-import { Play, GitBranch, Command } from 'lucide-react';
+import { Play, Command } from 'lucide-react';
 import { ProjectDropdown } from './ProjectDropdown';
 import ArtifactToggle from './ArtifactToggle';
 import { CommitPushButton } from './CommitPushButton';
+import { GitSyncButton } from './GitSyncButton';
 import { useAppState, useArtifactState } from '../hooks/useAppState';
 
 interface HeaderProps {
@@ -63,6 +63,11 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
             >
               <Play size={16} />
             </button>
+            
+            {/* Git sync button (pull/push) - NEW! */}
+            {currentProject.hasRepository && (
+              <GitSyncButton />
+            )}
             
             {/* Git commit/push button */}
             <CommitPushButton />
