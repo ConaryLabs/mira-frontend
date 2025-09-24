@@ -1,160 +1,192 @@
 // src/components/ChatContainer.tsx
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageList } from './MessageList';
-import { ChatInput } from './ChatInput';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useChatStore } from '../stores/useChatStore';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../hooks/useAppState';
-import { useMessageHandler } from '../hooks/useMessageHandler';
-import { useChatMessaging } from '../hooks/useChatMessaging';
-import { useChatPersistence } from '../hooks/useChatPersistence';
-import type { Message } from '../types';
+import { ChatMessage } from './ChatMessage';
+import { Send, AlertCircle, WifiOff, Wifi } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 export const ChatContainer: React.FC = () => {
-  // State management
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // Hooks for functionality
+  const { messages, addMessage } = useChatStore();
+  const { send, connectionState, subscribe } = useWebSocketStore();
   const { currentProject } = useAppState();
-  const { lastMessage, connectionState } = useWebSocket();
-  const { handleIncomingMessage } = useMessageHandler(setMessages, setIsWaitingForResponse);
-  const { handleSend, addSystemMessage } = useChatMessaging(setMessages, setIsWaitingForResponse);
+  const [input, setInput] = useState('');
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   
-  // Chat persistence
-  const { handleMemoryData } = useChatPersistence(setMessages, connectionState);
-
-  // Scroll to bottom function
-  const scrollToBottom = (immediate = false) => {
-    if (!messagesEndRef.current) return;
+  // Subscribe to responses to clear waiting state
+  useEffect(() => {
+    const unsubscribe = subscribe('chat-container', (message) => {
+      if (message.type === 'response' || message.type === 'error') {
+        setIsWaitingForResponse(false);
+      }
+    });
+    return unsubscribe;
+  }, [subscribe]);
+  
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isWaitingForResponse]);
+  
+  const handleSend = async () => {
+    if (!input.trim() || connectionState !== 'connected') return;
     
-    if (immediate) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
-    } else {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    const userMessage = input.trim();
+    setInput('');
+    setIsWaitingForResponse(true);  // Start waiting
+    
+    // Add user message to chat
+    addMessage({
+      id: `user_${Date.now()}`,
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now()
+    });
+    
+    // Build metadata for context
+    const metadata: any = {
+      session_id: 'peter-eternal',
+    };
+    
+    // Add project context
+    if (currentProject) {
+      metadata.project_name = currentProject.name;
+      metadata.has_repository = currentProject.hasRepository;
+    }
+    
+    // Send message via WebSocket
+    await send({
+      type: 'chat',
+      content: userMessage,
+      project_id: currentProject?.id,
+      metadata
+    });
+  };
+  
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
-
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    // Use setTimeout to ensure DOM has updated
-    const scrollTimeout = setTimeout(() => {
-      scrollToBottom();
-    }, 100);
+  
+  // Connection status component
+  const ConnectionStatus = () => {
+    const statusConfig = {
+      'connected': {
+        icon: <Wifi className="w-4 h-4" />,
+        text: 'Connected',
+        className: 'text-green-500'
+      },
+      'connecting': {
+        icon: <AlertCircle className="w-4 h-4 animate-pulse" />,
+        text: 'Connecting...',
+        className: 'text-yellow-500'
+      },
+      'disconnected': {
+        icon: <WifiOff className="w-4 h-4" />,
+        text: 'Disconnected',
+        className: 'text-red-500'
+      },
+      'error': {
+        icon: <AlertCircle className="w-4 h-4" />,
+        text: 'Connection Error',
+        className: 'text-red-500'
+      }
+    };
     
-    return () => clearTimeout(scrollTimeout);
-  }, [messages, isWaitingForResponse]);
-
-  // Immediate scroll to bottom when loading completes (page reload)
-  useEffect(() => {
-    if (messages.length > 0 && isLoadingHistory) {
-      console.log('Messages loaded, stopping loading state');
-      setIsLoadingHistory(false);
-      
-      // Immediate scroll to bottom for initial load
-      setTimeout(() => {
-        scrollToBottom(true);
-      }, 200);
-    }
-  }, [messages.length, isLoadingHistory]);
-
-  // Handle incoming WebSocket messages
-  useEffect(() => {
-    if (!lastMessage) return;
-
-    console.log('ChatContainer processing message:', lastMessage.type);
-
-    // Handle memory data (no type field in data)
-    if (lastMessage.type === 'data' && lastMessage.data && !lastMessage.data.type) {
-      console.log('Memory data received in ChatContainer:', lastMessage.data);
-      handleMemoryData(lastMessage.data);
-      return;
-    }
-
-    // Handle chat responses
-    if (lastMessage.type === 'response' && lastMessage.data && lastMessage.data.content) {
-      console.log('Chat response received in ChatContainer');
-      handleIncomingMessage(lastMessage);
-      return;
-    }
-
-    // Let global handler deal with everything else (project commands, etc.)
-    console.log('Letting global handler process:', lastMessage.type);
-  }, [lastMessage, handleIncomingMessage, handleMemoryData]);
-
-  // Timeout for loading state - don't wait forever
-  useEffect(() => {
-    if (connectionState === 'connected' && isLoadingHistory) {
-      const timeout = setTimeout(() => {
-        console.log('History load timeout - starting fresh');
-        setIsLoadingHistory(false);
-      }, 5000); // 5 second timeout
-      
-      return () => clearTimeout(timeout);
-    }
-  }, [connectionState, isLoadingHistory]);
-
-  // Reset loading state when connection changes
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      setIsLoadingHistory(true);
-    } else if (connectionState === 'disconnected') {
-      setIsLoadingHistory(false);
-    }
-  }, [connectionState]);
-
+    const config = statusConfig[connectionState];
+    
+    if (connectionState === 'connected') return null;
+    
+    return (
+      <div className={`flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700 ${config.className}`}>
+        {config.icon}
+        <span className="text-sm">{config.text}</span>
+        {connectionState === 'disconnected' && (
+          <button 
+            onClick={() => useWebSocketStore.getState().connect()}
+            className="ml-auto text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded"
+          >
+            Reconnect
+          </button>
+        )}
+      </div>
+    );
+  };
+  
   return (
-    <div className="h-full flex flex-col max-w-3xl mx-auto w-full">
-      {/* Connection status */}
-      {connectionState !== 'connected' && (
-        <div className="bg-yellow-900/50 border-b border-yellow-700/50 px-4 py-2 text-sm text-yellow-200">
-          {connectionState === 'connecting' ? 'Connecting...' : 'Disconnected'}
-        </div>
-      )}
+    <div className="flex-1 flex flex-col h-full">
+      <ConnectionStatus />
       
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        {isLoadingHistory ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="flex items-center gap-2 text-slate-400">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-400"></div>
-              Loading chat history...
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.length === 0 && !isWaitingForResponse && (
+          <div className="text-center text-gray-500 mt-8">
+            <p className="text-lg mb-2">Start a conversation</p>
+            <p className="text-sm">
+              {currentProject 
+                ? `Working in: ${currentProject.name}`
+                : 'No project selected'}
+            </p>
+          </div>
+        )}
+        
+        {messages.map((message) => (
+          <ChatMessage key={message.id} message={message} />
+        ))}
+        
+        {/* Thinking indicator when waiting for response */}
+        {isWaitingForResponse && (
+          <div className="flex justify-start mb-4">
+            <div className="max-w-[80%] bg-gray-800 text-gray-100 rounded-lg px-4 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Mira is thinking</span>
+                <div className="flex gap-1">
+                  <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                  <span className="inline-block w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{animationDelay: '200ms'}}></span>
+                  <span className="inline-block w-2 h-2 bg-blue-300 rounded-full animate-pulse" style={{animationDelay: '400ms'}}></span>
+                </div>
+              </div>
             </div>
           </div>
-        ) : (
-          <>
-            {/* Show message count for debugging */}
-            {messages.length > 0 && (
-              <div className="text-xs text-gray-500 text-center mb-4 opacity-75">
-                {messages.length} messages loaded
-              </div>
-            )}
-            
-            <MessageList 
-              messages={messages} 
-              isWaitingForResponse={isWaitingForResponse}
-            />
-            <div ref={messagesEndRef} />
-          </>
         )}
+        
+        <div ref={messagesEndRef} />
       </div>
       
       {/* Input area */}
-      <div className="border-t border-slate-700 p-4">
-        <ChatInput 
-          onSend={handleSend} 
-          disabled={isWaitingForResponse || connectionState !== 'connected'}
-          placeholder={
-            connectionState !== 'connected' 
-              ? 'Connecting...' 
-              : currentProject 
-                ? `Message Mira (${currentProject.name})...`
-                : 'Message Mira...'
-          }
-        />
+      <div className="border-t border-gray-700 p-4">
+        <div className="flex gap-2 max-w-4xl mx-auto">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyPress}
+            placeholder={
+              connectionState === 'connected' 
+                ? "Type a message... (Enter to send, Shift+Enter for new line)"
+                : "Connection required to send messages..."
+            }
+            disabled={connectionState !== 'connected'}
+            className="flex-1 bg-gray-800 text-gray-100 rounded-lg px-4 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            rows={3}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || connectionState !== 'connected'}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+
+export default ChatContainer;

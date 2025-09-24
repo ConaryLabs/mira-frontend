@@ -1,121 +1,182 @@
 // src/hooks/useMessageHandler.ts
-import { useCallback } from 'react';
-import type { Message } from '../types';
 
-export const useMessageHandler = (
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  setIsWaitingForResponse: React.Dispatch<React.SetStateAction<boolean>>
-) => {
+import { useEffect } from 'react';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
+import { useChatStore } from '../stores/useChatStore';
+import { useAppState } from './useAppState';
+
+export function useMessageHandler() {
+  const { subscribe } = useWebSocketStore();
+  const { addMessage } = useChatStore();
+  const { setProjects, setCurrentProject } = useAppState();
   
-  const handleIncomingMessage = useCallback((message: any) => {
-    if (!message || typeof message !== 'object') {
-      console.warn('Received invalid message:', message);
-      return;
-    }
-
-    console.log('Incoming message:', message.type, message);
-
-    try {
+  useEffect(() => {
+    const unsubscribe = subscribe('message-handler', (message) => {
+      console.log('[Handler] Processing message:', message.type);
+      
+      // Log the full message for debugging
+      if (message.type === 'data') {
+        console.log('[Handler] Data message content:', message.data);
+      }
+      
       switch (message.type) {
         case 'response':
-          console.log('Complete response received:', message.data);
-          console.log('Full response object:', JSON.stringify(message, null, 2));
-          
-          const responseData = message.data;
-          
-          // Check if this is a memory command response with actual data
-          if (responseData && (responseData.memories || responseData.stats || responseData.session_id)) {
-            console.log('Memory command returned data in response format:', responseData);
-            // Pass it to the memory handler
-            if (responseData.memories || responseData.stats) {
-              // This is memory data, handle it differently
-              return; // Let the persistence handler deal with it
-            }
-          }
-          
-          // Handle the case where backend returns just { status: "success" }
-          if (responseData && responseData.status === 'success' && !responseData.content) {
-            console.log('Backend returned success status without content - probably memory command response');
-            setIsWaitingForResponse(false);
-            return;
-          }
-          
-          // Handle normal chat responses
-          if (responseData && responseData.content) {
-            const assistantMessage: Message = {
-              id: `assistant-${Date.now()}`,
-              role: 'assistant',
-              content: responseData.content,
-              streaming: false,
-              timestamp: Date.now(),
-              metadata: {
-                salience: responseData.analysis?.salience,
-                topics: responseData.analysis?.topics,
-                mood: responseData.analysis?.mood,
-                contains_code: responseData.analysis?.contains_code,
-                programming_lang: responseData.analysis?.programming_lang,
-                routed_to_heads: responseData.analysis?.routed_to_heads,
-                response_id: responseData.metadata?.response_id,
-                total_tokens: responseData.metadata?.total_tokens,
-                latency_ms: responseData.metadata?.latency_ms
-              }
-            };
-            
-            setMessages(prev => [...prev, assistantMessage]);
-            
-            // TODO: Consider reloading history here to ensure persistence
-            // This would ensure the conversation is properly saved and reloaded
-          } else {
-            console.warn('Response data missing content:', responseData);
-          }
-          
-          setIsWaitingForResponse(false);
-          break;
-          
-        case 'connection_ready':
-          console.log('Backend ready:', message);
-          break;
-          
-        case 'status':
-          console.log('Status:', message.message);
-          
-          if (message.message && typeof message.message === 'string') {
-            try {
-              const parsed = JSON.parse(message.message);
-              if (parsed.type === 'heartbeat') {
-                console.log('Heartbeat filtered out');
-                return;
-              }
-            } catch {
-              // Not JSON, treat as regular status
-            }
-            
-            if (message.message.includes('Connected to Mira')) {
-              console.log('Connection status filtered out');
-              return;
-            }
-          }
+          handleChatResponse(message);
           break;
           
         case 'data':
-          // This should contain memory results
-          console.log('Data message received:', message.data);
+          handleDataMessage(message);
+          break;
+          
+        case 'status':
+          handleStatusMessage(message);
           break;
           
         case 'error':
-          console.error('Backend error:', message.error || message.message || 'Unknown error');
-          setIsWaitingForResponse(false);
+          handleErrorMessage(message);
           break;
           
         default:
-          console.log('Unhandled message type:', message.type);
-          break;
+          console.log('[Handler] Unhandled message type:', message.type, message);
       }
-    } catch (error) {
-      console.error('Error processing message:', error, message);
-      setIsWaitingForResponse(false);
+    });
+    
+    return unsubscribe;
+  }, []);
+  
+  function handleChatResponse(message: any) {
+    if (message.data?.artifacts && Array.isArray(message.data.artifacts)) {
+      console.log('[Handler] Error fix response with', message.data.artifacts.length, 'artifacts');
+      
+      const artifacts = message.data.artifacts.map((artifact: any) => ({
+        id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        path: artifact.path,
+        content: artifact.content,
+        language: detectLanguage(artifact.path),
+        changeType: artifact.change_type || 'primary',
+        originalContent: artifact.original_content,
+      }));
+      
+      addMessage({
+        id: message.id || `msg_${Date.now()}`,
+        role: 'assistant',
+        content: message.data.output || message.data.content || 'Here are the fixes for your code:',
+        artifacts,
+        timestamp: Date.now(),
+        metadata: {
+          fix_type: message.data.fix_type,
+          confidence: message.data.confidence,
+        }
+      });
+    } else if (message.data?.content) {
+      addMessage({
+        id: message.id || `msg_${Date.now()}`,
+        role: 'assistant',
+        content: message.data.content,
+        timestamp: Date.now(),
+      });
     }
-  }, [setMessages, setIsWaitingForResponse]);
-
-  return { handleIncomingMessage };
-};
+  }
+  
+  function handleDataMessage(message: any) {
+    if (!message.data) return;
+    
+    const { data } = message;
+    
+    if (data.projects) {
+      setProjects(data.projects);
+    }
+    
+    if (data.project) {
+      setCurrentProject(data.project);
+    }
+    
+    // Handle file content from git.file command
+    if (data.type === 'file_content' && data.content && data.path) {
+      console.log('[Handler] Creating artifact for file:', data.path);
+      
+      // Determine the correct MIME type based on file extension
+      const language = detectLanguage(data.path);
+      const artifactType = getArtifactType(language);
+      
+      // Create an artifact from the file content
+      const artifact = {
+        id: `file_${Date.now()}`,
+        title: data.path.split('/').pop() || 'untitled',
+        content: data.content,
+        type: artifactType,
+        language: language,
+        linkedFile: data.path,
+        created: Date.now(),
+        modified: Date.now()
+      };
+      
+      // Add artifact and set it as active
+      const { addArtifact, setShowArtifacts } = useAppState.getState();
+      addArtifact(artifact);
+      setShowArtifacts(true);
+    }
+    
+    if (data.artifact) {
+      const { addArtifact, setShowArtifacts } = useAppState.getState();
+      addArtifact(data.artifact);
+      setShowArtifacts(true);
+    }
+  }
+  
+  function handleStatusMessage(message: any) {
+    console.log('[Handler] Status:', message.message);
+  }
+  
+  function handleErrorMessage(message: any) {
+    console.error('[Handler] Error:', message.error);
+    
+    addMessage({
+      id: `error_${Date.now()}`,
+      role: 'system',
+      content: `⚠️ Error: ${message.error}`,
+      timestamp: Date.now(),
+    });
+  }
+  
+  function detectLanguage(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase();
+    const languageMap: Record<string, string> = {
+      'rs': 'rust',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'py': 'python',
+      'go': 'go',
+      'java': 'java',
+      'cpp': 'cpp',
+      'c': 'c',
+      'cs': 'csharp',
+      'rb': 'ruby',
+      'php': 'php',
+      'md': 'markdown',
+      'json': 'json',
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'toml': 'toml',
+    };
+    
+    return languageMap[ext || ''] || 'text';
+  }
+  
+  function getArtifactType(language: string): "text/markdown" | "application/javascript" | "application/typescript" | "text/html" | "text/css" | "application/json" | "text/python" | "text/rust" | "text/plain" {
+    const typeMap: Record<string, any> = {
+      'rust': 'text/rust',
+      'typescript': 'application/typescript',
+      'javascript': 'application/javascript',
+      'python': 'text/python',
+      'markdown': 'text/markdown',
+      'html': 'text/html',
+      'css': 'text/css',
+      'json': 'application/json',
+    };
+    
+    return typeMap[language] || 'text/plain';
+  }
+}

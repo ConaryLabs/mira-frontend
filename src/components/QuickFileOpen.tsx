@@ -1,10 +1,9 @@
 // src/components/QuickFileOpen.tsx
-// Simplified version - only handles file tree, global handler creates artifacts
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Command, File, Folder, Search, X } from 'lucide-react';
 import clsx from 'clsx';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../hooks/useAppState';
 
 interface FileNode {
@@ -32,32 +31,31 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const { send, lastMessage } = useWebSocket();
+  const { send, subscribe } = useWebSocketStore();
   const { currentProject } = useAppState();
 
-  // Listen for git.tree responses only
+  // Subscribe to WebSocket messages
   useEffect(() => {
-    if (!lastMessage || lastMessage.type !== 'data') return;
-    
-    const data = lastMessage.data;
-    
-    // Only handle git.tree responses here
-    if (data?.type === 'file_tree' && isOpen) {
-      console.log('Git tree response received:', data);
-      console.log('Raw tree structure:', JSON.stringify(data.tree?.slice(0, 3), null, 2)); // Show first 3 items
+    const unsubscribe = subscribe('quick-file-open', (message) => {
+      if (message.type !== 'data') return;
       
-      if (data.tree && Array.isArray(data.tree)) {
-        const flatFiles = flattenFiles(data.tree);
-        console.log('Processed files:', flatFiles.length);
-        console.log('First few processed files:', flatFiles.slice(0, 5).map(f => ({ name: f.name, path: f.path })));
-        setFiles(flatFiles);
-        setLoading(false);
+      const data = message.data;
+      
+      // ONLY handle git.tree responses here
+      // file_content is handled by the global message handler
+      if (data?.type === 'file_tree' && isOpen) {
+        console.log('Git tree response received:', data);
+        if (data.tree && Array.isArray(data.tree)) {
+          const flatFiles = flattenFiles(data.tree);
+          console.log('Processed files:', flatFiles.length);
+          setFiles(flatFiles);
+          setLoading(false);
+        }
       }
-    }
+    });
     
-    // NOTE: file_content is now handled by the global WebSocket handler
-    // It will automatically create artifacts when files are opened
-  }, [lastMessage, isOpen]);
+    return unsubscribe;
+  }, [subscribe, isOpen]);
 
   // Load files when modal opens
   useEffect(() => {
@@ -72,12 +70,10 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     }
     
     if (isOpen && inputRef.current) {
-      // Focus search input when modal opens
       setTimeout(() => inputRef.current?.focus(), 100);
     }
     
     if (!isOpen) {
-      // Reset state when closing
       setQuery('');
       setSelectedIndex(0);
       setLoading(false);
@@ -112,24 +108,20 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     const result: FileNode[] = [];
     
     for (const node of nodes) {
-      // The backend already provides the correct full path in node.path
       const fullPath = node.path || node.name;
       
-      // Determine if this is a file or directory
       const isDirectory = node.type === 'directory' || 
                          node.node_type === 'Directory' || 
                          (node.children && node.children.length > 0);
       
       if (!isDirectory) {
-        // It's a file - use the backend-provided path directly
         result.push({
           name: node.name,
-          path: fullPath,  // Use the backend-provided full path
+          path: fullPath,
           type: 'file'
         });
       }
       
-      // Recursively process children
       if (node.children && node.children.length > 0) {
         result.push(...flattenFiles(node.children, fullPath));
       }
@@ -140,14 +132,7 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
 
   // Filter files based on search query
   useEffect(() => {
-    console.log('Filtering files:', { 
-      query, 
-      totalFiles: files.length,
-      queryLength: query.trim().length
-    });
-    
     if (!query.trim()) {
-      console.log('No query, showing all files:', files.length);
       setFilteredFiles(files);
     } else {
       const filtered = files.filter(file => {
@@ -155,22 +140,13 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
         const pathMatch = file.path.toLowerCase().includes(query.toLowerCase());
         return nameMatch || pathMatch;
       });
-      console.log('Filtered results:', { 
-        query, 
-        original: files.length, 
-        filtered: filtered.length,
-        firstFewResults: filtered.slice(0, 3).map(f => f.name)
-      });
       setFilteredFiles(filtered);
     }
-    setSelectedIndex(0); // Reset selection when filtering
+    setSelectedIndex(0);
   }, [query, files]);
 
   const handleFileSelect = async (file: FileNode) => {
     console.log('File selected:', file.path);
-    console.log('File name:', file.name);
-    console.log('File type:', file.type);
-    console.log('Full file object:', file);
     console.log('Project ID:', currentProject?.id);
     console.log('Requesting file content from backend...');
     
@@ -182,16 +158,13 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
       
       console.log('Sending request with params:', JSON.stringify(requestParams, null, 2));
       
-      // Send git.file request - global handler will create the artifact
       await send({
         type: 'git_command',
         method: 'git.file',
         params: requestParams
       });
       
-      console.log('File request sent - artifact will be created by global handler');
-      
-      // Close the modal immediately
+      console.log('File request sent');
       onClose();
       
     } catch (error) {
@@ -233,131 +206,149 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     }
   };
 
+  // Helper functions
+  function detectLanguage(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase();
+    const languageMap: Record<string, string> = {
+      'rs': 'rust',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'py': 'python',
+      'go': 'go',
+      'java': 'java',
+      'cpp': 'cpp',
+      'c': 'c',
+      'cs': 'csharp',
+      'rb': 'ruby',
+      'php': 'php',
+      'md': 'markdown',
+      'json': 'json',
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'toml': 'toml',
+    };
+    
+    return languageMap[ext || ''] || 'text';
+  }
+  
+  function getArtifactType(language: string): "text/markdown" | "application/javascript" | "application/typescript" | "text/html" | "text/css" | "application/json" | "text/python" | "text/rust" | "text/plain" {
+    const typeMap: Record<string, any> = {
+      'rust': 'text/rust',
+      'typescript': 'application/typescript',
+      'javascript': 'application/javascript',
+      'python': 'text/python',
+      'markdown': 'text/markdown',
+      'html': 'text/html',
+      'css': 'text/css',
+      'json': 'application/json',
+    };
+    
+    return typeMap[language] || 'text/plain';
+  }
+
   if (!isOpen) return null;
 
   return (
     <div 
       className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center pt-20 z-50"
-      onClick={handleClickOutside}
+      onMouseDown={handleClickOutside}
     >
       <div 
         ref={modalRef}
-        className="bg-gray-800 rounded-lg border border-gray-600 w-full max-w-2xl mx-4 max-h-[60vh] flex flex-col shadow-2xl"
+        className="bg-slate-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-96 overflow-hidden"
       >
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-600">
-          <Command size={16} className="text-gray-400" />
-          <span className="text-sm text-gray-400">Quick File Open</span>
-          
-          {currentProject && (
-            <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded">
-              {currentProject.name}
-            </span>
-          )}
-          
-          <button 
-            onClick={onClose}
-            className="ml-auto p-1 hover:bg-gray-700 rounded"
-          >
-            <X size={16} className="text-gray-400" />
-          </button>
+        <div className="p-3 border-b border-slate-700">
+          <div className="flex items-center gap-2">
+            <Search className="w-5 h-5 text-slate-400" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={loading ? "Loading files..." : "Search files... (↑↓ to navigate, Enter to open)"}
+              className="flex-1 bg-transparent outline-none text-slate-100 placeholder-slate-500"
+              disabled={loading}
+            />
+            {currentProject && (
+              <span className="text-xs text-slate-500">
+                {currentProject.name}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Search Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-700">
-          <Search size={16} className="text-gray-400" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search files..."
-            className="flex-1 bg-transparent text-gray-100 placeholder-gray-400 outline-none"
-          />
-          
-          {loading && (
-            <div className="text-xs text-gray-400">Loading...</div>
-          )}
-        </div>
-
-        {/* File List */}
-        <div className="flex-1 overflow-y-auto">
-          {!currentProject ? (
-            <div className="p-8 text-center text-gray-400">
-              <Folder size={32} className="mx-auto mb-2 opacity-50" />
-              <p>No project selected</p>
-              <p className="text-xs mt-1">Select a project first</p>
-            </div>
-          ) : loading ? (
-            <div className="p-8 text-center text-gray-400">
-              <div className="animate-spin w-6 h-6 border-2 border-gray-600 border-t-blue-400 rounded-full mx-auto mb-2"></div>
-              <p>Loading files...</p>
+        <div className="overflow-y-auto max-h-80">
+          {loading ? (
+            <div className="px-4 py-8 text-center text-slate-500">
+              Loading project files...
             </div>
           ) : filteredFiles.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">
-              <File size={32} className="mx-auto mb-2 opacity-50" />
-              <p>{query ? 'No files match your search' : 'No files found'}</p>
-              {query && (
-                <p className="text-xs mt-1">Try a different search term</p>
-              )}
+            <div className="px-4 py-8 text-center text-slate-500">
+              {query ? 'No files found' : 'No files in project'}
             </div>
           ) : (
-            <div className="py-2">
+            <ul>
               {filteredFiles.map((file, index) => (
-                <button
+                <li
                   key={file.path}
-                  onClick={() => handleFileSelect(file)}
                   className={clsx(
-                    'w-full flex items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-700',
-                    index === selectedIndex && 'bg-blue-600/20 text-blue-200'
+                    'px-4 py-2 cursor-pointer flex items-center gap-2',
+                    index === selectedIndex
+                      ? 'bg-slate-700 text-slate-100'
+                      : 'text-slate-300 hover:bg-slate-700/50'
                   )}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onClick={() => handleFileSelect(file)}
                 >
-                  <File size={14} className="text-gray-400 flex-shrink-0" />
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="text-gray-200 truncate">{file.name}</div>
-                    <div className="text-xs text-gray-400 truncate">{file.path}</div>
+                  <File className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                  <div className="flex-1 overflow-hidden">
+                    <div className="font-medium truncate">{file.name}</div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {file.path}
+                    </div>
                   </div>
-                </button>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-400 flex justify-between">
-          <span>
-            {filteredFiles.length > 0 && `${filteredFiles.length} files`}
-          </span>
-          <span>
-            ↑↓ navigate • Enter select • Esc close
-          </span>
+        <div className="p-2 border-t border-slate-700 text-xs text-slate-500 flex items-center justify-between">
+          <div>
+            {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="px-1.5 py-0.5 bg-slate-700 rounded">↑↓</kbd> Navigate
+            <kbd className="px-1.5 py-0.5 bg-slate-700 rounded">Enter</kbd> Open
+            <kbd className="px-1.5 py-0.5 bg-slate-700 rounded">Esc</kbd> Close
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-// Custom hook for QuickFileOpen functionality
 export const useQuickFileOpen = () => {
   const [isOpen, setIsOpen] = useState(false);
-  
-  const open = () => setIsOpen(true);
-  const close = () => setIsOpen(false);
-  
-  // Add global Cmd+P / Ctrl+P handler
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
         e.preventDefault();
-        open();
+        setIsOpen(true);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-  
-  return { isOpen, open, close };
+
+  return {
+    isOpen,
+    open: () => setIsOpen(true),
+    close: () => setIsOpen(false),
+  };
 };
