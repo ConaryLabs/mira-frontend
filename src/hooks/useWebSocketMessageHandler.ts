@@ -1,8 +1,14 @@
 // src/hooks/useWebSocketMessageHandler.ts
+// Add file_content artifact creation to the global handler
+
 import { useEffect } from 'react';
 import { useAppState } from './useAppState';
 import { useWebSocket } from './useWebSocket';
-import type { Project } from '../types';
+import { useArtifacts } from './useArtifacts'; // Import artifacts hook
+import type { Project, Artifact } from '../types';
+
+// Type alias for allowed artifact types
+type ArtifactType = Artifact['type'];
 
 export const useWebSocketMessageHandler = () => {
   const { lastMessage, send } = useWebSocket();
@@ -14,13 +20,16 @@ export const useWebSocketMessageHandler = () => {
     clearModifiedFiles,
     setShowFileExplorer
   } = useAppState();
+  
+  // Access artifact functions for file_content handling
+  const { addArtifact } = useArtifacts();
 
   useEffect(() => {
     if (!lastMessage) return;
 
-    console.log('🔍 WebSocket message received:', lastMessage);
+    console.log('WebSocket message received:', lastMessage);
     handleMessage(lastMessage);
-  }, [lastMessage, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send]);
+  }, [lastMessage, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
 
   const handleMessage = (message: any) => {
     if (!message || typeof message !== 'object') {
@@ -31,14 +40,14 @@ export const useWebSocketMessageHandler = () => {
     switch (message.type) {
       case 'data':
         if (message.data) {
-          console.log('📦 Handling data message:', message.data);
+          console.log('Handling data message:', message.data);
           handleDataMessage(message.data);
         }
         break;
         
       case 'response':
         if (message.data) {
-          console.log('📡 Handling response message:', message.data);
+          console.log('Handling response message:', message.data);
           handleDataMessage(message.data);
         }
         break;
@@ -56,26 +65,95 @@ export const useWebSocketMessageHandler = () => {
         break;
         
       default:
-        console.log('🤷 Unhandled message type:', message.type);
+        console.log('Unhandled message type:', message.type);
         break;
     }
   };
 
+  // Helper functions for artifact creation
+  const getArtifactType = (filePath: string): ArtifactType => {
+    if (!filePath) return 'text/plain';
+    
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'rs': return 'text/rust';
+      case 'js': return 'application/javascript';
+      case 'jsx': return 'application/javascript';
+      case 'ts': return 'application/typescript';
+      case 'tsx': return 'application/typescript';
+      case 'py': return 'text/python';
+      case 'json': return 'application/json';
+      case 'html': return 'text/html';
+      case 'css': return 'text/css';
+      case 'md': return 'text/markdown';
+      // Map unsupported types to text/plain
+      case 'toml': case 'yaml': case 'yml': case 'sh': case 'bash': case 'txt': case 'log':
+        return 'text/plain';
+      default: return 'text/plain';
+    }
+  };
+
+  const detectLanguage = (filePath: string): string => {
+    if (!filePath) return 'plaintext';
+    
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'rs': return 'rust';
+      case 'js': case 'jsx': return 'javascript';
+      case 'ts': case 'tsx': return 'typescript';
+      case 'py': return 'python';
+      case 'json': return 'json';
+      case 'html': return 'html';
+      case 'css': return 'css';
+      case 'md': return 'markdown';
+      case 'toml': return 'toml';
+      case 'yaml': case 'yml': return 'yaml';
+      case 'sh': return 'shell';
+      default: return 'plaintext';
+    }
+  };
+
   const handleDataMessage = (data: any) => {
-    console.log('🎯 Processing data message type:', data.type);
+    console.log('Processing data message type:', data.type);
     
     if (!data.type) {
-      console.log('💭 No type field - letting chat system handle memory data');
+      console.log('No type field - letting chat system handle memory data');
       return; // Let memory data pass through to chat system
     }
     
     switch (data.type) {
+      // NEW: Handle file_content to create artifacts
+      case 'file_content':
+        console.log('File content received, creating artifact:', {
+          path: data.path,
+          contentLength: data.content?.length || 0
+        });
+        
+        if (data.content !== undefined) {
+          const newArtifact = {
+            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            title: data.path?.split('/').pop() || 'Unknown File',
+            content: data.content || '// No content',
+            type: getArtifactType(data.path || ''),
+            language: detectLanguage(data.path || ''),
+            linkedFile: data.path,
+            created: Date.now(),
+            modified: Date.now()
+          };
+          
+          console.log('Creating artifact:', newArtifact.title, newArtifact.type);
+          addArtifact(newArtifact);
+          console.log('Artifact created successfully');
+        } else {
+          console.warn('No content in file_content message');
+        }
+        break;
+      
       case 'project_list':
-        console.log('📋 Project list received:', data.projects);
+        console.log('Project list received:', data.projects);
         if (data.projects && Array.isArray(data.projects)) {
-          // 🚀 FIXED: Process projects with repository status and debug logging
           const processedProjects: Project[] = data.projects.map((project: any) => {
-            console.log('🔍 Processing project:', {
+            console.log('Processing project:', {
               id: project.id,
               name: project.name,
               has_repository: project.has_repository,
@@ -90,169 +168,80 @@ export const useWebSocketMessageHandler = () => {
               tags: project.tags || [],
               lastAccessed: project.last_accessed || Date.now(),
               created: project.created || Date.now(),
-              // 🔥 KEY FIX: Use the repository info from backend
               hasRepository: Boolean(project.has_repository),
               repositoryUrl: project.repository_url,
             };
           });
           
-          console.log('📊 Setting processed projects:', processedProjects);
+          console.log('Setting processed projects:', processedProjects);
           setProjects(processedProjects);
 
-          // 🚀 CRITICAL FIX: Update current project if it has new repository status
+          // Update current project if it has new repository status
           const { currentProject } = useAppState.getState();
           if (currentProject) {
             const updatedCurrentProject = processedProjects.find(p => p.id === currentProject.id);
             if (updatedCurrentProject && updatedCurrentProject.hasRepository !== currentProject.hasRepository) {
-              console.log('🔄 Updating current project repository status:', {
-                projectId: currentProject.id,
-                oldStatus: currentProject.hasRepository,
-                newStatus: updatedCurrentProject.hasRepository
-              });
+              console.log('Updating current project with new repository status');
               setCurrentProject(updatedCurrentProject);
             }
           }
         }
         break;
 
-      case 'project_created':
-        console.log('✨ New project created:', data.project);
-        if (data.project) {
-          // Add new project to existing list
-          setProjects((prev: Project[]) => [...prev, {
-            id: data.project.id,
-            name: data.project.name,
-            description: data.project.description,
-            tags: data.project.tags || [],
-            lastAccessed: data.project.last_accessed || Date.now(),
-            created: data.project.created || Date.now(),
-            hasRepository: Boolean(data.project.has_repository),
-            repositoryUrl: data.project.repository_url,
-          }]);
-          
-          // Set as current project
-          setCurrentProject({
-            id: data.project.id,
-            name: data.project.name,
-            description: data.project.description,
-            tags: data.project.tags || [],
-            lastAccessed: data.project.last_accessed || Date.now(),
-            created: data.project.created || Date.now(),
-            hasRepository: Boolean(data.project.has_repository),
-            repositoryUrl: data.project.repository_url,
-          });
-        }
+      case 'file_tree':
+      case 'tree':
+        console.log('File tree received - handled by QuickFileOpen');
+        // QuickFileOpen component handles this
         break;
 
-      case 'project_updated':
-        console.log('📝 Project updated:', data.project);
-        if (data.project) {
-          // Update project in list
-          setProjects((prev: Project[]) => prev.map((p: Project) => 
-            p.id === data.project.id 
-              ? {
-                  ...p,
-                  name: data.project.name || p.name,
-                  description: data.project.description || p.description,
-                  tags: data.project.tags || p.tags,
-                  hasRepository: data.project.has_repository !== undefined 
-                    ? Boolean(data.project.has_repository)
-                    : p.hasRepository,
-                  repositoryUrl: data.project.repository_url || p.repositoryUrl,
-                }
-              : p
-          ));
-
-          // 🚀 Update current project if it's the one that was updated
-          const { currentProject } = useAppState.getState();
-          if (currentProject && currentProject.id === data.project.id) {
-            setCurrentProject({
-              ...currentProject,
-              name: data.project.name || currentProject.name,
-              description: data.project.description || currentProject.description,
-              tags: data.project.tags || currentProject.tags,
-              hasRepository: data.project.has_repository !== undefined 
-                ? Boolean(data.project.has_repository)
-                : currentProject.hasRepository,
-              repositoryUrl: data.project.repository_url || currentProject.repositoryUrl,
+      case 'git_status':
+        console.log('Git status received:', data.status);
+        if (data.status) {
+          updateGitStatus(data.status);
+          
+          // Update modified files list
+          if (data.status.modified && Array.isArray(data.status.modified)) {
+            // Clear existing and add new modified files
+            clearModifiedFiles();
+            data.status.modified.forEach((file: string) => {
+              addModifiedFile(file);
             });
           }
         }
         break;
 
-      case 'git_status':
-        console.log('🌿 Git status received:', data);
-        updateGitStatus({
-          branch: data.branch,
-          ahead: data.ahead || 0,
-          behind: data.behind || 0,
-          modified: data.modified || [],
-          added: data.added || [],
-          deleted: data.deleted || [],
-          untracked: data.untracked || [],
-          staged: data.staged || []
-        });
-        
-        // Update modified files for UI
-        clearModifiedFiles();
-        if (data.modified) {
-          data.modified.forEach((file: string) => addModifiedFile(file));
+      case 'project_updated':
+        console.log('Project updated:', data.project);
+        if (data.project) {
+          const updatedProject: Project = {
+            id: data.project.id,
+            name: data.project.name,
+            description: data.project.description,
+            tags: data.project.tags || [],
+            lastAccessed: Date.now(),
+            created: data.project.created || Date.now(),
+            hasRepository: Boolean(data.project.has_repository),
+            repositoryUrl: data.project.repository_url,
+          };
+          
+          // Update current project if it's the one being updated
+          const { currentProject } = useAppState.getState();
+          if (currentProject && currentProject.id === updatedProject.id) {
+            setCurrentProject(updatedProject);
+          }
+          
+          // Update projects list
+          const { projects } = useAppState.getState();
+          const updatedProjects = projects.map(p => 
+            p.id === updatedProject.id ? updatedProject : p
+          );
+          setProjects(updatedProjects);
         }
-        if (data.added) {
-          data.added.forEach((file: string) => addModifiedFile(file));
-        }
-
-        // 🚀 NEW: This suggests repository is working, refresh project list
-        console.log('🔄 Git status received, refreshing project list to check repository status...');
-        setTimeout(() => {
-          refreshProjectList();
-        }, 500);
-        break;
-
-      case 'file_tree':
-        console.log('🌳 File tree received:', data.tree);
-        // This will be handled by FileBrowser component directly
-        break;
-
-      case 'file_content':
-        console.log('📄 File content received for:', data.path);
-        // This will be handled by file components directly
         break;
 
       default:
-        // 🚀 Check for success responses that might indicate project changes
-        if (data.status === 'success' || data.message?.includes('success')) {
-          console.log('✅ Got success response, might need to refresh project list:', data);
-          
-          // If it's a git-related success, refresh project list
-          if (data.message?.includes('clone') || 
-              data.message?.includes('import') || 
-              data.message?.includes('attach')) {
-            console.log('🔄 Git operation succeeded, refreshing project list...');
-            setTimeout(() => {
-              refreshProjectList();
-            }, 1000);
-          }
-        } else {
-          console.log('🤷 Unhandled data message type:', data.type || 'undefined');
-        }
+        console.log('Unhandled data message type:', data.type);
         break;
     }
   };
-
-  // Helper function to refresh project list
-  const refreshProjectList = async () => {
-    try {
-      console.log('🔄 Refreshing project list...');
-      await send({
-        type: 'project_command',
-        method: 'project.list',
-        params: {}
-      });
-    } catch (error) {
-      console.error('❌ Failed to refresh project list:', error);
-    }
-  };
-
-  return { handleMessage };
 };
