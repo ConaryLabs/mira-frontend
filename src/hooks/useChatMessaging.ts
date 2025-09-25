@@ -12,7 +12,7 @@ export const useChatMessaging = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
   setIsWaitingForResponse: React.Dispatch<React.SetStateAction<boolean>>
 ) => {
-  const { send } = useWebSocket();
+  const send = useWebSocketStore(state => state.send);
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
   const { activeArtifact } = useArtifactState(); // KEY: Access active artifact
 

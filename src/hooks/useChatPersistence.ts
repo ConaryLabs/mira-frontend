@@ -9,8 +9,8 @@ export const useChatPersistence = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
   connectionState: string
 ) => {
-  const { send } = useWebSocket();
-  const hasLoadedHistory = useRef(false); // 🚀 Prevent multiple history loads
+  const send = useWebSocketStore(state => state.send);
+  const hasLoadedHistory = useRef(false); // Prevent multiple history loads
 
   // Use the eternal session ID that matches backend
   const getSessionId = useCallback(() => {
@@ -30,7 +30,7 @@ export const useChatPersistence = (
       if (!memory || !memory.content) continue;
       
       try {
-        // 🚀 Better timestamp handling
+        // Better timestamp handling
         let timestamp = Date.now();
         if (memory.timestamp) {
           if (typeof memory.timestamp === 'string') {
@@ -63,7 +63,7 @@ export const useChatPersistence = (
       }
     }
     
-    // 🚀 Sort by timestamp (oldest first) and remove duplicates
+    // Sort by timestamp (oldest first) and remove duplicates
     const sortedMessages = validMessages
       .sort((a, b) => a.timestamp - b.timestamp)
       .filter((message, index, array) => {
@@ -74,7 +74,7 @@ export const useChatPersistence = (
         );
       });
 
-    console.log(`📚 Converted ${memories.length} memories to ${sortedMessages.length} messages`);
+    console.log(`Converted ${memories.length} memories to ${sortedMessages.length} messages`);
     return sortedMessages;
   }, []);
 
@@ -95,7 +95,7 @@ export const useChatPersistence = (
       const loadedMessages = convertMemoryToMessages(data.memories);
       console.log('Loaded', loadedMessages.length, 'previous messages');
       
-      // 🚀 CRITICAL FIX: Only set messages if we haven't loaded history yet
+      // CRITICAL FIX: Only set messages if we haven't loaded history yet
       if (!hasLoadedHistory.current) {
         setMessages(loadedMessages);
         hasLoadedHistory.current = true;
@@ -107,7 +107,7 @@ export const useChatPersistence = (
           const newMessages = loadedMessages.filter(m => !existingIds.has(m.id));
           
           if (newMessages.length > 0) {
-            console.log(`🔄 Adding ${newMessages.length} new historical messages`);
+            console.log(`Adding ${newMessages.length} new historical messages`);
             return [...newMessages, ...currentMessages].sort((a, b) => a.timestamp - b.timestamp);
           }
           
@@ -133,7 +133,7 @@ export const useChatPersistence = (
     const sessionId = getSessionId();
     
     try {
-      console.log('🔄 Loading chat history for session:', sessionId);
+      console.log('Loading chat history for session:', sessionId);
       
       // Load recent messages from backend
       const recentMessage = {
@@ -141,7 +141,7 @@ export const useChatPersistence = (
         method: 'memory.get_recent',
         params: {
           session_id: sessionId,
-          count: 100 // 🚀 Load more messages to avoid gaps
+          count: 100 // Load more messages to avoid gaps
         }
       };
       

@@ -11,6 +11,7 @@ interface FileNode {
   path: string;
   type?: 'file' | 'directory';
   node_type?: 'File' | 'Directory';
+  is_directory?: boolean;
   children?: FileNode[];
 }
 
@@ -31,7 +32,8 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const { send, subscribe } = useWebSocketStore();
+  const send = useWebSocketStore(state => state.send);
+  const subscribe = useWebSocketStore(state => state.subscribe);
   const { currentProject } = useAppState();
 
   // Subscribe to WebSocket messages
@@ -110,7 +112,8 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     for (const node of nodes) {
       const fullPath = node.path || node.name;
       
-      const isDirectory = node.type === 'directory' || 
+      const isDirectory = node.is_directory || 
+                         node.type === 'directory' || 
                          node.node_type === 'Directory' || 
                          (node.children && node.children.length > 0);
       
@@ -172,13 +175,11 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex(prev => 
-          Math.min(prev + 1, filteredFiles.length - 1)
-        );
+        setSelectedIndex(prev => Math.min(prev + 1, filteredFiles.length - 1));
         break;
         
       case 'ArrowUp':
@@ -200,90 +201,48 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     }
   };
 
-  const handleClickOutside = (e: React.MouseEvent) => {
-    if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
       onClose();
     }
   };
-
-  // Helper functions
-  function detectLanguage(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase();
-    const languageMap: Record<string, string> = {
-      'rs': 'rust',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'py': 'python',
-      'go': 'go',
-      'java': 'java',
-      'cpp': 'cpp',
-      'c': 'c',
-      'cs': 'csharp',
-      'rb': 'ruby',
-      'php': 'php',
-      'md': 'markdown',
-      'json': 'json',
-      'yaml': 'yaml',
-      'yml': 'yaml',
-      'toml': 'toml',
-    };
-    
-    return languageMap[ext || ''] || 'text';
-  }
-  
-  function getArtifactType(language: string): "text/markdown" | "application/javascript" | "application/typescript" | "text/html" | "text/css" | "application/json" | "text/python" | "text/rust" | "text/plain" {
-    const typeMap: Record<string, any> = {
-      'rust': 'text/rust',
-      'typescript': 'application/typescript',
-      'javascript': 'application/javascript',
-      'python': 'text/python',
-      'markdown': 'text/markdown',
-      'html': 'text/html',
-      'css': 'text/css',
-      'json': 'application/json',
-    };
-    
-    return typeMap[language] || 'text/plain';
-  }
 
   if (!isOpen) return null;
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center pt-20 z-50"
-      onMouseDown={handleClickOutside}
+      className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-start justify-center pt-24"
+      onClick={handleOverlayClick}
     >
-      <div 
-        ref={modalRef}
-        className="bg-slate-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-96 overflow-hidden"
-      >
-        <div className="p-3 border-b border-slate-700">
-          <div className="flex items-center gap-2">
-            <Search className="w-5 h-5 text-slate-400" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={loading ? "Loading files..." : "Search files... (↑↓ to navigate, Enter to open)"}
-              className="flex-1 bg-transparent outline-none text-slate-100 placeholder-slate-500"
-              disabled={loading}
-            />
-            {currentProject && (
-              <span className="text-xs text-slate-500">
-                {currentProject.name}
-              </span>
-            )}
-          </div>
+      <div ref={modalRef} className="bg-slate-900 rounded-lg shadow-2xl border border-slate-700 w-full max-w-2xl max-h-[600px] flex flex-col">
+        <div className="flex items-center px-4 py-3 border-b border-slate-700">
+          <Search className="text-slate-400 mr-3" size={20} />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={currentProject ? "Type to search files..." : "Select a project first..."}
+            className="flex-1 bg-transparent text-white outline-none placeholder-slate-500"
+            disabled={!currentProject}
+          />
+          <button
+            onClick={onClose}
+            className="ml-3 text-slate-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
-
-        <div className="overflow-y-auto max-h-80">
-          {loading ? (
+        
+        <div className="flex-1 overflow-y-auto">
+          {!currentProject ? (
             <div className="px-4 py-8 text-center text-slate-500">
-              Loading project files...
+              Select a project to browse files
+            </div>
+          ) : loading ? (
+            <div className="px-4 py-8 text-center text-slate-500">
+              Loading files...
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="px-4 py-8 text-center text-slate-500">

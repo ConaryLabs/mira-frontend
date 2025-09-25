@@ -11,7 +11,9 @@ import type { Project, Artifact } from '../types';
 type ArtifactType = Artifact['type'];
 
 export const useWebSocketMessageHandler = () => {
-  const { lastMessage, send } = useWebSocket();
+  const subscribe = useWebSocketStore(state => state.subscribe);
+  const send = useWebSocketStore(state => state.send);
+  
   const { 
     setProjects,
     setCurrentProject, 
@@ -25,11 +27,13 @@ export const useWebSocketMessageHandler = () => {
   const { addArtifact } = useArtifacts();
 
   useEffect(() => {
-    if (!lastMessage) return;
+    const unsubscribe = subscribe('global-message-handler', (message) => {
+      console.log('WebSocket message received:', message);
+      handleMessage(message);
+    });
 
-    console.log('WebSocket message received:', lastMessage);
-    handleMessage(lastMessage);
-  }, [lastMessage, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
+    return unsubscribe;
+  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
 
   const handleMessage = (message: any) => {
     if (!message || typeof message !== 'object') {
@@ -176,12 +180,15 @@ export const useWebSocketMessageHandler = () => {
           console.log('Setting processed projects:', processedProjects);
           setProjects(processedProjects);
 
-          // Update current project if it has new repository status
+          // CRITICAL: Update current project if it exists in the new list
           const { currentProject } = useAppState.getState();
           if (currentProject) {
             const updatedCurrentProject = processedProjects.find(p => p.id === currentProject.id);
-            if (updatedCurrentProject && updatedCurrentProject.hasRepository !== currentProject.hasRepository) {
-              console.log('Updating current project with new repository status');
+            if (updatedCurrentProject) {
+              console.log('Updating current project with latest data:', {
+                old: { hasRepository: currentProject.hasRepository },
+                new: { hasRepository: updatedCurrentProject.hasRepository }
+              });
               setCurrentProject(updatedCurrentProject);
             }
           }

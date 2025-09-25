@@ -1,5 +1,4 @@
 // src/App.tsx
-
 import React, { useEffect } from 'react';
 import { Header } from './components/Header';
 import { ChatContainer } from './components/ChatContainer';
@@ -7,7 +6,7 @@ import { ArtifactPanel } from './components/ArtifactPanel';
 import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
 import { useAppState } from './hooks/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
-import { useMessageHandler } from './hooks/useMessageHandler';
+import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import './App.css';
 
 function App() {
@@ -26,11 +25,11 @@ function App() {
   }, [connect, disconnect]);
   
   // Handle all WebSocket messages
-  useMessageHandler();
+  useWebSocketMessageHandler();
   
   // Quick file open handler
   const quickFileOpen = useQuickFileOpen();
-
+  
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
       <Header onQuickFileOpen={quickFileOpen.open} />
@@ -41,7 +40,7 @@ function App() {
           {showArtifacts && <ArtifactPanel />}
         </div>
       </div>
-
+      
       <QuickFileOpen
         isOpen={quickFileOpen.isOpen}
         onClose={quickFileOpen.close}

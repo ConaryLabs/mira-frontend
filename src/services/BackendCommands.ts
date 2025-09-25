@@ -2,7 +2,12 @@
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 
 export class BackendCommands {
-  constructor(private send: (message: any) => Promise<void>) {}
+  private send: (message: any) => Promise<void>;
+
+  constructor() {
+    // Get send from the Zustand store
+    this.send = useWebSocketStore.getState().send;
+  }
 
   // ==================== PROJECT COMMANDS ====================
   
@@ -120,6 +125,22 @@ export class BackendCommands {
     });
   }
 
+  async getFileTree(projectId: string) {
+    return this.send({
+      type: 'git_command',
+      method: 'git.tree',
+      params: { project_id: projectId }
+    });
+  }
+
+  async getFileContent(projectId: string, filePath: string) {
+    return this.send({
+      type: 'git_command',
+      method: 'git.file',
+      params: { project_id: projectId, file_path: filePath }
+    });
+  }
+
   // ==================== FILE SYSTEM COMMANDS ====================
 
   async saveFile(path: string, content: string) {
@@ -172,118 +193,108 @@ export class BackendCommands {
 
   // ==================== CODE INTELLIGENCE COMMANDS ====================
 
-  async searchCode(pattern: string, limit: number = 10) {
+  async searchCode(pattern: string, projectId: string, limit: number = 10) {
     return this.send({
       type: 'code_intelligence',
       method: 'code.search',
-      params: { pattern, limit }
+      params: { 
+        pattern, 
+        project_id: projectId,
+        limit 
+      }
     });
   }
 
-  async getComplexityHotspots(limit: number = 5) {
+  async getComplexityHotspots(projectId: string, limit: number = 5) {
     return this.send({
       type: 'code_intelligence',
       method: 'code.complexity_hotspots',
-      params: { limit }
+      params: { 
+        project_id: projectId,
+        limit 
+      }
     });
   }
 
-  async getRepositoryStats(attachmentId?: string) {
+  async getRepositoryStats(projectId: string) {
     return this.send({
       type: 'code_intelligence',
-      method: 'code.repo_stats',
-      params: { attachment_id: attachmentId }
-    });
-  }
-
-  async getCodeElementsByType(elementType: string, limit: number = 10) {
-    return this.send({
-      type: 'code_intelligence',
-      method: 'code.elements_by_type',
-      params: { element_type: elementType, limit }
-    });
-  }
-
-  async getSupportedLanguages() {
-    return this.send({
-      type: 'code_intelligence',
-      method: 'code.supported_languages',
-      params: {}
-    });
-  }
-
-  async deleteRepositoryData(projectId: string) {
-    return this.send({
-      type: 'code_intelligence',
-      method: 'code.delete_repository_data',
+      method: 'code.stats',
       params: { project_id: projectId }
+    });
+  }
+
+  async analyzeFile(projectId: string, filePath: string) {
+    return this.send({
+      type: 'code_intelligence',
+      method: 'code.analyze',
+      params: { 
+        project_id: projectId,
+        file_path: filePath 
+      }
+    });
+  }
+
+  // ==================== CHAT / MESSAGE COMMANDS ====================
+
+  async sendChat(message: string, projectId?: string) {
+    const metadata: any = {
+      session_id: 'peter-eternal',
+    };
+
+    return this.send({
+      type: 'chat',
+      content: message,
+      project_id: projectId,
+      metadata
     });
   }
 
   // ==================== MEMORY COMMANDS ====================
 
-  async searchMemory(query: string, limit: number = 10) {
+  async searchMemory(sessionId: string, query: string, limit: number = 10) {
     return this.send({
-      type: 'memory_command',
+      type: 'memory',
       method: 'memory.search',
-      params: { query, limit }
+      params: {
+        session_id: sessionId,
+        query,
+        limit
+      }
     });
   }
 
-  async getRecentMemories(limit: number = 10) {
+  async getMemoryStats(sessionId: string) {
     return this.send({
-      type: 'memory_command',
-      method: 'memory.recent',
-      params: { limit }
-    });
-  }
-
-  async getMemoryStats() {
-    return this.send({
-      type: 'memory_command',
+      type: 'memory',
       method: 'memory.stats',
-      params: {}
+      params: {
+        session_id: sessionId
+      }
     });
   }
 
-  async deleteMemory(memoryId: string) {
-    return this.send({
-      type: 'memory_command',
-      method: 'memory.delete',
-      params: { memory_id: memoryId }
-    });
-  }
+  // ==================== RUN PROJECT COMMAND ====================
 
-  // ==================== CHAT & MESSAGING ====================
-
-  async sendChat(content: string, projectId?: string, metadata?: any) {
+  async runProject(projectId: string, command?: string) {
+    // Determine command based on project type
+    if (!command) {
+      command = 'cargo run';  // Default to Rust
+    }
+    
     return this.send({
-      type: 'chat',
-      content,
-      project_id: projectId,
-      metadata: metadata || {}
-    });
-  }
-
-  async sendStatus(message: string) {
-    return this.send({
-      type: 'status',
-      message
+      type: 'project',
+      method: 'project.run',
+      params: {
+        project_id: projectId,
+        command
+      }
     });
   }
 
   // ==================== UTILITY COMMANDS ====================
 
-  async ping() {
-    return this.send({
-      type: 'ping'
-    });
-  }
-
-  // ==================== NATURAL LANGUAGE HELPERS ====================
-  // These parse natural language and send appropriate commands
-
-  async handleNaturalLanguageCommand(input: string, projectId?: string) {
+  async processCommand(input: string, projectId?: string) {
     const lower = input.toLowerCase().trim();
 
     // Git operations
@@ -319,7 +330,7 @@ export class BackendCommands {
 
     if (lower.startsWith('search ')) {
       const query = input.replace(/^search\s+/i, '');
-      return this.searchCode(query);
+      return this.searchCode(query, projectId!, 20);
     }
 
     // Project operations
@@ -335,6 +346,5 @@ export class BackendCommands {
 
 // Hook to use backend commands
 export const useBackendCommands = () => {
-  const { send } = useWebSocket();
-  return new BackendCommands(send);
+  return new BackendCommands();
 };

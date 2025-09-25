@@ -19,7 +19,8 @@ export const ProjectDropdown: React.FC = () => {
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { currentProject, projects, setCurrentProject } = useAppState();
-  const { send, connectionState } = useWebSocket();
+  const send = useWebSocketStore(state => state.send);
+  const connectionState = useWebSocketStore(state => state.connectionState);
 
   // Debug project state changes
   useEffect(() => {
@@ -90,9 +91,10 @@ export const ProjectDropdown: React.FC = () => {
     console.log('Selecting project:', {
       id: project.id,
       name: project.name,
-      hasRepository: project.hasRepository,
-      repositoryUrl: project.repositoryUrl
+      hasRepository: project.hasRepository
     });
+    
+    // Set project locally - backend doesn't track active project
     setCurrentProject(project);
     setIsOpen(false);
     setProjectMenuOpen(null);
@@ -118,7 +120,7 @@ export const ProjectDropdown: React.FC = () => {
       await send({
         type: 'project_command',
         method: 'project.delete',
-        params: { id: project.id }
+        params: { id: project.id }  // Backend expects 'id', not 'project_id'
       });
 
       console.log('Project deleted successfully');
@@ -152,7 +154,9 @@ export const ProjectDropdown: React.FC = () => {
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
+    console.log('Creating project:', newProjectName);
     setIsCreating(true);
+    
     try {
       await send({
         type: 'project_command',
@@ -164,65 +168,9 @@ export const ProjectDropdown: React.FC = () => {
         }
       });
       
-      setNewProjectName('');
-      setShowNewProject(false);
-      setIsOpen(false);
-    } catch (error) {
-      console.error('Failed to create project:', error);
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleAttachRepository = async () => {
-    if (!repoUrl.trim() || !currentProject) return;
-
-    setIsAttaching(true);
-    try {
-      console.log('Step 1: Attaching repository:', repoUrl.trim(), 'to project:', currentProject.id);
-
-      // Step 1: Attach the repository (creates attachment record)
-      await send({
-        type: 'git_command',
-        method: 'git.attach',
-        params: {
-          project_id: currentProject.id,
-          repo_url: repoUrl.trim()
-        }
-      });
-      console.log('Repository attached successfully');
-
-      // Wait a bit for the database transaction to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      console.log('Step 2: Cloning repository...');
+      console.log('Project created successfully');
       
-      // Step 2: Clone the repository locally
-      await send({
-        type: 'git_command',
-        method: 'git.clone',
-        params: {
-          project_id: currentProject.id
-        }
-      });
-      console.log('Repository cloned successfully');
-
-      // Wait a bit for cloning to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      console.log('Step 3: Importing and analyzing codebase...');
-      
-      // Step 3: Import and analyze the codebase
-      await send({
-        type: 'git_command',
-        method: 'git.import',
-        params: {
-          project_id: currentProject.id
-        }
-      });
-      console.log('Repository imported and analyzed successfully');
-
-      // Refresh projects to update repository status
+      // Refresh project list
       setTimeout(async () => {
         try {
           await send({
@@ -233,13 +181,91 @@ export const ProjectDropdown: React.FC = () => {
         } catch (error) {
           console.error('Failed to refresh project list:', error);
         }
-      }, 2000);
+      }, 500);
+      
+      setNewProjectName('');
+      setShowNewProject(false);
+    } catch (error) {
+      console.error('Failed to create project:', error);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleAttachRepository = async () => {
+    if (!repoUrl.trim() || !currentProject) return;
+
+    console.log('Starting repository import process for:', repoUrl);
+    console.log('Current project:', currentProject.name, '(ID:', currentProject.id, ')');
+    setIsAttaching(true);
+
+    try {
+      // Step 1: Attach the repository (creates attachment record in database)
+      console.log('Step 1: Creating repository attachment...');
+      await send({
+        type: 'git_command',
+        method: 'git.attach',
+        params: {
+          project_id: currentProject.id,
+          repo_url: repoUrl.trim()
+        }
+      });
+      console.log('Repository attachment created successfully');
+
+      // Wait for database transaction to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Step 2: Clone the repository to local filesystem
+      console.log('Step 2: Cloning repository...');
+      await send({
+        type: 'git_command',
+        method: 'git.clone',
+        params: {
+          project_id: currentProject.id
+        }
+      });
+      console.log('Repository cloned successfully');
+
+      // Wait for cloning to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Step 3: Import and analyze the codebase
+      console.log('Step 3: Importing and analyzing codebase...');
+      await send({
+        type: 'git_command',
+        method: 'git.import',
+        params: {
+          project_id: currentProject.id
+        }
+      });
+      console.log('Repository imported and analyzed successfully');
+
+      // Refresh projects to update repository status
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      try {
+        await send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
+        console.log('Project list refreshed');
+        
+        // Force update the current project to show it has a repository now
+        const updatedProject = { ...currentProject, hasRepository: true };
+        setCurrentProject(updatedProject);
+      } catch (error) {
+        console.error('Failed to refresh project list:', error);
+      }
       
       setRepoUrl('');
       setShowAttachRepo(false);
       setIsOpen(false);
+      
+      alert('Repository imported successfully! The codebase has been analyzed and indexed.');
     } catch (error) {
-      console.error('Failed to attach repository:', error);
+      console.error('Failed to import repository:', error);
+      alert('Failed to import repository. Please check the URL and try again.');
     } finally {
       setIsAttaching(false);
     }
@@ -430,8 +456,8 @@ export const ProjectDropdown: React.FC = () => {
               </button>
             )}
 
-            {/* Attach repository section */}
-            {currentProject && (
+            {/* Attach repository section - only show if project doesn't have a repo */}
+            {currentProject && !currentProject.hasRepository && (
               <>
                 {showAttachRepo ? (
                   <div className="space-y-2">
@@ -442,6 +468,7 @@ export const ProjectDropdown: React.FC = () => {
                       onKeyDown={handleKeyPress}
                       placeholder="Git repository URL"
                       className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-blue-500"
+                      autoFocus
                     />
                     <div className="flex gap-2">
                       <button
@@ -452,10 +479,10 @@ export const ProjectDropdown: React.FC = () => {
                         {isAttaching ? (
                           <>
                             <div className="animate-spin rounded-full h-3 w-3 border-b border-white"></div>
-                            Attaching...
+                            Importing...
                           </>
                         ) : (
-                          'Attach'
+                          'Import'
                         )}
                       </button>
                       <button
@@ -475,7 +502,7 @@ export const ProjectDropdown: React.FC = () => {
                     className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-sm"
                   >
                     <GitBranch size={16} />
-                    Attach Repository
+                    Import Repository
                   </button>
                 )}
               </>

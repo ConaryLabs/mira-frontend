@@ -16,16 +16,16 @@ export const useArtifacts = (): ArtifactHook => {
   } = useArtifactState();
   
   const { setShowArtifacts } = useAppState();
-  const { send } = useWebSocket();
-
+  const send = useWebSocketStore(state => state.send);
+  
   const closeArtifacts = useCallback(() => {
     setShowArtifacts(false);
   }, [setShowArtifacts]);
-
+  
   const saveArtifactToFile = useCallback(async (id: string, filename: string) => {
     const artifact = artifacts.find(a => a.id === id);
     if (!artifact) return;
-
+    
     try {
       await send({
         type: 'file_system_command',
@@ -35,7 +35,7 @@ export const useArtifacts = (): ArtifactHook => {
           content: artifact.content
         }
       });
-
+      
       // Update artifact to show it's linked to a file
       updateArtifact(id, { linkedFile: filename });
       
@@ -45,18 +45,18 @@ export const useArtifacts = (): ArtifactHook => {
       console.error('Failed to save artifact:', error);
     }
   }, [artifacts, send, updateArtifact]);
-
+  
   const copyArtifact = useCallback((id: string) => {
     const artifact = artifacts.find(a => a.id === id);
     if (!artifact) return;
-
+    
     navigator.clipboard.writeText(artifact.content).then(() => {
       console.log('Artifact copied to clipboard');
     }).catch((error) => {
       console.error('Failed to copy artifact:', error);
     });
   }, [artifacts]);
-
+  
   const createArtifact = useCallback((
     title: string, 
     content: string, 
@@ -72,11 +72,10 @@ export const useArtifacts = (): ArtifactHook => {
       created: Date.now(),
       modified: Date.now()
     };
-
     addArtifact(artifact);
     return artifact;
   }, [addArtifact]);
-
+  
   return {
     artifacts,
     activeArtifact,
