@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useAppState } from './useAppState';
-import { useWebSocket } from './useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useArtifacts } from './useArtifacts'; // Import artifacts hook
 import type { Project, Artifact } from '../types';
 

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Plus, Folder, GitBranch, Trash2, MoreHorizontal } from 'lucide-react';
 import { useAppState } from '../hooks/useAppState';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import type { Project } from '../types';
 
 export const ProjectDropdown: React.FC = () => {

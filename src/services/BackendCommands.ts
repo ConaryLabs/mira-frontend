@@ -1,5 +1,5 @@
 // src/services/BackendCommands.ts
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 
 export class BackendCommands {
   constructor(private send: (message: any) => Promise<void>) {}

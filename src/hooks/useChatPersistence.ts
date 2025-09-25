@@ -1,6 +1,6 @@
 // src/hooks/useChatPersistence.ts
 import { useEffect, useCallback, useRef } from 'react';
-import { useWebSocket } from './useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import type { Message } from '../types';
 
 const ETERNAL_SESSION_ID = 'peter-eternal'; // The backend's default eternal session

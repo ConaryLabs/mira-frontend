@@ -1,7 +1,7 @@
 // src/components/FileBrowser.tsx
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronDown, File, Folder } from 'lucide-react';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../hooks/useAppState';
 
 interface FileNode {
@@ -18,7 +18,8 @@ export const FileBrowser: React.FC = () => {
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
-  const { send, lastMessage } = useWebSocket();
+  const send = useWebSocketStore(state => state.send);
+  const lastMessage = useWebSocketStore(state => state.lastMessage);
   const { currentProject } = useAppState();
 
   // Load file tree when project changes
@@ -102,9 +103,9 @@ export const FileBrowser: React.FC = () => {
       <div key={node.path}>
         <div
           className={`flex items-center gap-1 py-1 px-2 hover:bg-gray-800 cursor-pointer text-sm ${
-            isSelected ? 'bg-blue-600/20 text-blue-300' : 'text-gray-300'
+            isSelected ? 'bg-blue-900 text-blue-200' : 'text-gray-300'
           }`}
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={() => {
             if (node.is_directory) {
               toggleExpanded(node.path);
@@ -115,16 +116,16 @@ export const FileBrowser: React.FC = () => {
         >
           {node.is_directory ? (
             <>
-              {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <Folder size={14} className="text-blue-400" />
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <Folder size={14} />
             </>
           ) : (
             <>
-              <span style={{ width: '12px' }} />
-              <File size={14} className="text-gray-400" />
+              <span className="w-3.5" />
+              <File size={14} />
             </>
           )}
-          <span className="truncate">{node.name}</span>
+          <span className="ml-1">{node.name}</span>
         </div>
         
         {node.is_directory && isExpanded && node.children && (
@@ -138,57 +139,37 @@ export const FileBrowser: React.FC = () => {
 
   if (!currentProject) {
     return (
-      <div className="p-4 text-gray-500 text-sm">
-        Select a project to browse files
-      </div>
-    );
-  }
-
-  if (fileTree.length === 0) {
-    return (
-      <div className="p-4 text-gray-500 text-sm">
-        <div>No repository attached</div>
-        <button 
-          onClick={loadFileTree}
-          className="mt-2 text-blue-400 hover:text-blue-300"
-        >
-          Refresh
-        </button>
+      <div className="p-4 text-gray-500">
+        No project selected
       </div>
     );
   }
 
   return (
-    <div className="flex h-full">
-      {/* File Tree */}
-      <div className="w-1/3 border-r border-gray-700 overflow-y-auto">
-        <div className="p-2 border-b border-gray-700 text-sm font-medium text-gray-300">
-          Files
-        </div>
-        <div className="py-1">
-          {fileTree.map(node => renderFileNode(node))}
-        </div>
+    <div className="h-full flex flex-col">
+      <div className="border-b border-gray-700 p-2">
+        <h3 className="text-sm font-medium">Files</h3>
       </div>
       
-      {/* File Content */}
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-4 text-gray-500">Loading...</div>
-        ) : selectedFile && fileContent ? (
-          <div className="h-full">
-            <div className="p-2 border-b border-gray-700 text-sm text-gray-400">
-              {selectedFile}
-            </div>
-            <pre className="p-4 text-sm text-gray-300 overflow-auto">
-              <code>{fileContent}</code>
-            </pre>
+      <div className="flex-1 overflow-auto">
+        {fileTree.length === 0 ? (
+          <div className="p-4 text-gray-500 text-sm">
+            No files available
           </div>
         ) : (
-          <div className="p-4 text-gray-500 text-sm">
-            Select a file to view its contents
+          <div className="py-1">
+            {fileTree.map(node => renderFileNode(node))}
           </div>
         )}
       </div>
+      
+      {selectedFile && (
+        <div className="border-t border-gray-700 p-2">
+          <div className="text-xs text-gray-400 truncate">
+            {selectedFile}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

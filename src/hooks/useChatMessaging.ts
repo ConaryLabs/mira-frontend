@@ -2,7 +2,7 @@
 // Enhanced with full file context integration
 
 import { useCallback } from 'react';
-import { useWebSocket } from './useWebSocket';
+import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState, useArtifactState } from './useAppState';
 import type { Message } from '../types';
 
