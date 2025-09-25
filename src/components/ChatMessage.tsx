@@ -32,7 +32,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     
     try {
       await send({
-        type: 'file_system',
+        type: 'file_system_command',
         method: 'files.write',
         params: {
           project_id: currentProject.id,
@@ -55,7 +55,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     
     try {
       await send({
-        type: 'git',
+        type: 'git_command',
         method: 'git.restore',
         params: {
           project_id: currentProject.id,
@@ -100,60 +100,71 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const getChangeTypeBadge = (changeType?: string) => {
     switch (changeType) {
       case 'primary':
-        return 'bg-red-900/50 text-red-300 border-red-700';
+        return 'bg-red-900 text-red-300 border-red-700';
       case 'import':
-        return 'bg-yellow-900/50 text-yellow-300 border-yellow-700';
+        return 'bg-yellow-900 text-yellow-300 border-yellow-700';
       case 'type':
-        return 'bg-purple-900/50 text-purple-300 border-purple-700';
+        return 'bg-purple-900 text-purple-300 border-purple-700';
       case 'cascade':
-        return 'bg-blue-900/50 text-blue-300 border-blue-700';
+        return 'bg-blue-900 text-blue-300 border-blue-700';
       default:
-        return 'bg-gray-900/50 text-gray-300 border-gray-700';
+        return 'bg-gray-700 text-gray-300 border-gray-600';
     }
   };
   
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`max-w-[80%]`}>
-        <div className={`rounded-lg px-4 py-2 ${
-          isUser 
-            ? 'bg-blue-600 text-white' 
-            : isSystem
-            ? 'bg-yellow-900/20 text-yellow-200 border border-yellow-700/50'
-            : 'bg-gray-800 text-gray-100'
-        }`}>
+    <div className={`mb-4 ${isUser ? 'ml-8' : 'mr-8'}`}>
+      <div className={`rounded-lg p-4 ${
+        isUser 
+          ? 'bg-blue-900/20 border border-blue-800/50' 
+          : isSystem
+          ? 'bg-yellow-900/20 border border-yellow-800/50'
+          : 'bg-gray-800/50 border border-gray-700/50'
+      }`}>
+        <div className="text-xs text-gray-500 mb-2">
+          {message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : 'Mira'}
+        </div>
+        
+        <div className="prose prose-invert max-w-none">
           <ReactMarkdown
             components={{
               code(props) {
-                const {node, className, children} = props;
-                const inline = !!(props as any).inline;
+                const {children, className, ...rest} = props;
                 const match = /language-(\w+)/.exec(className || '');
-                return !inline && match ? (
+                const inline = !match;
+                
+                return !inline ? (
                   <SyntaxHighlighter
                     style={vscDarkPlus as any}
                     language={match[1]}
                     PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      background: 'rgb(31 41 55)',
+                      fontSize: '0.875rem',
+                    }}
                   >
                     {String(children).replace(/\n$/, '')}
                   </SyntaxHighlighter>
                 ) : (
-                  <code className="bg-gray-900 px-1 rounded">
+                  <code className={className} {...rest}>
                     {children}
                   </code>
                 );
-              }
+              },
             }}
           >
             {message.content}
           </ReactMarkdown>
         </div>
         
+        {/* Artifact Display for Error Fixes */}
         {message.artifacts && message.artifacts.length > 0 && (
-          <div className="mt-3 bg-gray-900/50 rounded-lg border border-gray-700 p-3">
-            <div className="flex items-center justify-between mb-2">
+          <div className="mt-4 p-3 bg-blue-900/20 rounded-lg border border-blue-800/50">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-semibold text-blue-300">
+                <span className="text-sm font-medium text-blue-300">
                   {message.artifacts.length} file{message.artifacts.length > 1 ? 's' : ''} to fix
                 </span>
               </div>

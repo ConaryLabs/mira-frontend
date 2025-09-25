@@ -65,7 +65,7 @@ export class BackendCommands {
     return this.send({
       type: 'git_command',
       method: 'git.sync',
-      params: { project_id: projectId, message }
+      params: { project_id: projectId, message: message || 'Update from Mira' }
     });
   }
 
@@ -125,6 +125,14 @@ export class BackendCommands {
     });
   }
 
+  async gitRestore(projectId: string, filePath: string) {
+    return this.send({
+      type: 'git_command',
+      method: 'git.restore',
+      params: { project_id: projectId, file_path: filePath }
+    });
+  }
+
   async getFileTree(projectId: string) {
     return this.send({
       type: 'git_command',
@@ -143,50 +151,50 @@ export class BackendCommands {
 
   // ==================== FILE SYSTEM COMMANDS ====================
 
-  async saveFile(path: string, content: string) {
+  async writeFile(projectId: string, path: string, content: string) {
     return this.send({
       type: 'file_system_command',
-      method: 'file.save',
-      params: { path, content }
+      method: 'files.write',
+      params: { project_id: projectId, path, content }
     });
   }
 
-  async readFile(path: string) {
+  async readFile(projectId: string, path: string) {
     return this.send({
       type: 'file_system_command',
-      method: 'file.read',
-      params: { path }
+      method: 'files.read',
+      params: { project_id: projectId, path }
     });
   }
 
-  async listFiles(path: string) {
+  async listFiles(projectId: string, path: string) {
     return this.send({
       type: 'file_system_command',
-      method: 'file.list',
-      params: { path }
+      method: 'files.list',
+      params: { project_id: projectId, path }
     });
   }
 
-  async deleteFile(path: string) {
+  async deleteFile(projectId: string, path: string) {
     return this.send({
       type: 'file_system_command',
-      method: 'file.delete',
-      params: { path }
+      method: 'files.delete',
+      params: { project_id: projectId, path }
     });
   }
 
-  async createDirectory(path: string) {
+  async createDirectory(projectId: string, path: string) {
     return this.send({
       type: 'file_system_command',
       method: 'directory.create',
-      params: { path }
+      params: { project_id: projectId, path }
     });
   }
 
   async searchFiles(query: string, projectId?: string) {
     return this.send({
       type: 'file_system_command',
-      method: 'file.search',
+      method: 'files.search',
       params: { query, project_id: projectId }
     });
   }
@@ -237,16 +245,17 @@ export class BackendCommands {
 
   // ==================== CHAT / MESSAGE COMMANDS ====================
 
-  async sendChat(message: string, projectId?: string) {
-    const metadata: any = {
+  async sendChat(message: string, projectId?: string, metadata?: any) {
+    const fullMetadata: any = {
       session_id: 'peter-eternal',
+      ...metadata
     };
 
     return this.send({
       type: 'chat',
       content: message,
       project_id: projectId,
-      metadata
+      metadata: fullMetadata
     });
   }
 
@@ -283,7 +292,7 @@ export class BackendCommands {
     }
     
     return this.send({
-      type: 'project',
+      type: 'project_command',
       method: 'project.run',
       params: {
         project_id: projectId,
@@ -316,16 +325,9 @@ export class BackendCommands {
     }
 
     // File operations
-    if (lower.startsWith('save ')) {
-      const filename = input.replace(/^save\s+/i, '');
-      // This would need artifact content from context
-      console.log('TODO: Save current artifact as', filename);
-      return;
-    }
-
     if (lower.startsWith('create ') && lower.includes('file')) {
       const filename = input.replace(/^create\s+file\s+/i, '');
-      return this.saveFile(filename, '// New file\n');
+      return this.writeFile(projectId!, filename, '// New file\n');
     }
 
     if (lower.startsWith('search ')) {
