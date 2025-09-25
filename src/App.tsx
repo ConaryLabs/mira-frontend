@@ -4,7 +4,7 @@ import { Header } from './components/Header';
 import { ChatContainer } from './components/ChatContainer';
 import { ArtifactPanel } from './components/ArtifactPanel';
 import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
-import { useAppState } from './hooks/useAppState';
+import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import './App.css';

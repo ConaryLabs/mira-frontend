@@ -6,7 +6,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 import { Check, ChevronDown, ChevronRight, FileCode, AlertCircle } from 'lucide-react';
 
 interface ChatMessageProps {

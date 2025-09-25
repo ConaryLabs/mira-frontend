@@ -1,6 +1,6 @@
 // src/hooks/useArtifacts.ts
 import { useCallback } from 'react';
-import { useAppState, useArtifactState } from './useAppState';
+import { useAppState, useArtifactState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import type { Artifact, ArtifactHook } from '../types';
 

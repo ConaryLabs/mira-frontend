@@ -1,7 +1,7 @@
 // src/components/RunButton.tsx
 import React from 'react';
 import { Play } from 'lucide-react';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 
 export const RunButton: React.FC = () => {
   const { currentProject } = useAppState();

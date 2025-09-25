@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useChatStore } from '../stores/useChatStore';
-import { useAppState } from './useAppState';
+import { useAppState } from '../stores/useAppState';
 
 export function useMessageHandler() {
   const { subscribe } = useWebSocketStore();

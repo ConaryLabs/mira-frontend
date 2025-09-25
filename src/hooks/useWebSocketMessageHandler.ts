@@ -2,7 +2,7 @@
 // Add file_content artifact creation to the global handler
 
 import { useEffect } from 'react';
-import { useAppState } from './useAppState';
+import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useArtifacts } from './useArtifacts'; // Import artifacts hook
 import type { Project, Artifact } from '../types';

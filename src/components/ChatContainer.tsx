@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 import { ChatMessage } from './ChatMessage';
 import { Send, AlertCircle, WifiOff, Wifi } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronDown, File, Folder } from 'lucide-react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 
 interface FileNode {
   name: string;

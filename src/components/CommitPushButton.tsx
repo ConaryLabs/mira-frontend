@@ -1,7 +1,7 @@
 // src/components/CommitPushButton.tsx
 import React, { useState } from 'react';
 import { GitCommit } from 'lucide-react';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 import { useBackendCommands } from '../services/BackendCommands';
 
 export const CommitPushButton: React.FC = () => {

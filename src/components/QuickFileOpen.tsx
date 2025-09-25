@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Command, File, Folder, Search, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 
 interface FileNode {
   name: string;

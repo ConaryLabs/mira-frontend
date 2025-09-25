@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Download, Upload, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../stores/useAppState';
 
 export const GitSyncButton: React.FC = () => {
   const [syncing, setSyncing] = useState(false);

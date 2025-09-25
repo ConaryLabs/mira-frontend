@@ -3,7 +3,7 @@
 
 import { useCallback } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useAppState, useArtifactState } from './useAppState';
+import { useAppState, useArtifactState } from '../stores/useAppState';
 import type { Message } from '../types';
 
 const ETERNAL_SESSION_ID = 'peter-eternal'; // Match backend default

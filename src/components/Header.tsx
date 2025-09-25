@@ -5,7 +5,7 @@ import { ProjectDropdown } from './ProjectDropdown';
 import ArtifactToggle from './ArtifactToggle';
 import { CommitPushButton } from './CommitPushButton';
 import { GitSyncButton } from './GitSyncButton';
-import { useAppState, useArtifactState } from '../hooks/useAppState';
+import { useAppState, useArtifactState } from '../stores/useAppState';
 
 interface HeaderProps {
   onQuickFileOpen: () => void;
