@@ -49,13 +49,8 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
         
-      case 'response':
-        if (message.data) {
-          console.log('Handling response message:', message.data);
-          handleDataMessage(message.data);
-        }
-        break;
-        
+      // REMOVED: case 'response' - let useMessageHandler.ts handle chat responses
+      
       case 'status':
         console.log('Status:', message.message);
         break;

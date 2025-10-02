@@ -45,7 +45,10 @@ export function useMessageHandler() {
   }, []);
   
   function handleChatResponse(message: any) {
-    if (message.data?.artifacts && Array.isArray(message.data.artifacts)) {
+    console.log('[Handler] Chat response:', message.data);
+    
+    // FIXED: Handle both error fix responses (with artifacts) and regular chat responses
+    if (message.data?.artifacts && Array.isArray(message.data.artifacts) && message.data.artifacts.length > 0) {
       console.log('[Handler] Error fix response with', message.data.artifacts.length, 'artifacts');
       
       const artifacts = message.data.artifacts.map((artifact: any) => ({
@@ -60,7 +63,7 @@ export function useMessageHandler() {
       addMessage({
         id: message.id || `msg_${Date.now()}`,
         role: 'assistant',
-        content: message.data.output || message.data.content || 'Here are the fixes for your code:',
+        content: message.data.content || 'Here are the fixes for your code:',
         artifacts,
         timestamp: Date.now(),
         metadata: {
@@ -69,12 +72,18 @@ export function useMessageHandler() {
         }
       });
     } else if (message.data?.content) {
+      // FIXED: Regular chat response - just add the message
+      console.log('[Handler] Regular chat response');
+      
       addMessage({
         id: message.id || `msg_${Date.now()}`,
         role: 'assistant',
         content: message.data.content,
         timestamp: Date.now(),
+        metadata: message.data.metadata,
       });
+    } else {
+      console.warn('[Handler] Response message missing content:', message.data);
     }
   }
   
@@ -129,12 +138,12 @@ export function useMessageHandler() {
   }
   
   function handleErrorMessage(message: any) {
-    console.error('[Handler] Error:', message.error);
+    console.error('[Handler] Error:', message.message || message.error);
     
     addMessage({
       id: `error_${Date.now()}`,
       role: 'system',
-      content: `⚠️ Error: ${message.error}`,
+      content: `⚠️ Error: ${message.message || message.error}`,
       timestamp: Date.now(),
     });
   }

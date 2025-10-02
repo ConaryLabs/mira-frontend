@@ -7,6 +7,7 @@ import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
 import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
+import { useMessageHandler } from './hooks/useMessageHandler'; // ADD THIS
 import './App.css';
 
 function App() {
@@ -25,7 +26,8 @@ function App() {
   }, [connect, disconnect]);
   
   // Handle all WebSocket messages
-  useWebSocketMessageHandler();
+  useWebSocketMessageHandler(); // Handles data messages (projects, files, git)
+  useMessageHandler();          // ADD THIS - Handles response messages (chat)
   
   // Quick file open handler
   const quickFileOpen = useQuickFileOpen();
