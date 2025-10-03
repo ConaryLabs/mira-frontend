@@ -7,17 +7,16 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
-import { Check, ChevronDown, ChevronRight, FileCode, AlertCircle } from 'lucide-react';
+import { Check, FileCode, AlertCircle, ExternalLink } from 'lucide-react';
 
 interface ChatMessageProps {
   message: ChatMessageType;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
-  const [expandedArtifacts, setExpandedArtifacts] = useState<Set<string>>(new Set());
   const [appliedArtifacts, setAppliedArtifacts] = useState<Set<string>>(new Set());
   const { send } = useWebSocketStore();
-  const { currentProject } = useAppState();
+  const { currentProject, setShowArtifacts, addArtifact, setActiveArtifact } = useAppState();
   
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -85,16 +84,72 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
   };
   
-  const toggleArtifact = (artifactId: string) => {
-    setExpandedArtifacts(prev => {
-      const next = new Set(prev);
-      if (next.has(artifactId)) {
-        next.delete(artifactId);
-      } else {
-        next.add(artifactId);
-      }
-      return next;
-    });
+  const handleViewInArtifacts = (artifact: Artifact) => {
+    console.log('[ChatMessage] Opening artifact in viewer:', artifact.id);
+    
+    // Detect language and type from path
+    const ext = artifact.path?.split('.').pop()?.toLowerCase();
+    let type: 'application/javascript' | 'application/typescript' | 'text/html' | 'text/css' | 'application/json' | 'text/python' | 'text/rust' | 'text/plain' | 'text/markdown';
+    let language: string;
+    
+    switch (ext) {
+      case 'rs':
+        type = 'text/rust';
+        language = 'rust';
+        break;
+      case 'ts':
+      case 'tsx':
+        type = 'application/typescript';
+        language = 'typescript';
+        break;
+      case 'js':
+      case 'jsx':
+        type = 'application/javascript';
+        language = 'javascript';
+        break;
+      case 'py':
+        type = 'text/python';
+        language = 'python';
+        break;
+      case 'html':
+        type = 'text/html';
+        language = 'html';
+        break;
+      case 'css':
+        type = 'text/css';
+        language = 'css';
+        break;
+      case 'json':
+        type = 'application/json';
+        language = 'json';
+        break;
+      case 'md':
+        type = 'text/markdown';
+        language = 'markdown';
+        break;
+      default:
+        type = 'text/plain';
+        language = 'plaintext';
+    }
+    
+    // Map to full artifact type with required fields
+    const fullArtifact = {
+      id: artifact.id,
+      title: artifact.path?.split('/').pop() || 'Unknown File',
+      content: artifact.content,
+      type,
+      language,
+      linkedFile: artifact.path,
+      created: Date.now(),
+      modified: Date.now(),
+    };
+    
+    // Add to store first if not already there
+    addArtifact(fullArtifact);
+    
+    // Then activate and show
+    setActiveArtifact(artifact.id);
+    setShowArtifacts(true);
   };
   
   const getChangeTypeBadge = (changeType?: string) => {
@@ -134,18 +189,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 const inline = !match;
                 
                 return !inline ? (
-                  <SyntaxHighlighter
-                    style={vscDarkPlus as any}
-                    language={match[1]}
-                    PreTag="div"
-                    customStyle={{
-                      margin: 0,
-                      background: 'rgb(31 41 55)',
-                      fontSize: '0.875rem',
-                    }}
-                  >
-                    {String(children).replace(/\n$/, '')}
-                  </SyntaxHighlighter>
+                  <div className="max-h-[300px] overflow-y-auto">
+                    <SyntaxHighlighter
+                      style={vscDarkPlus as any}
+                      language={match[1]}
+                      PreTag="div"
+                      customStyle={{
+                        margin: 0,
+                        background: 'rgb(31 41 55)',
+                        fontSize: '0.875rem',
+                      }}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  </div>
                 ) : (
                   <code className={className} {...rest}>
                     {children}
@@ -158,7 +215,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           </ReactMarkdown>
         </div>
         
-        {/* Artifact Display for Error Fixes */}
+        {/* Artifact Display - Just Links, No Inline Code */}
         {message.artifacts && message.artifacts.length > 0 && (
           <div className="mt-4 p-3 bg-blue-900/20 rounded-lg border border-blue-800/50">
             <div className="flex items-center justify-between mb-3">
@@ -179,75 +236,58 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             </div>
             
             {message.artifacts.map(artifact => {
-              const isExpanded = expandedArtifacts.has(artifact.id);
               const isApplied = appliedArtifacts.has(artifact.id);
               
               return (
                 <div key={artifact.id} className="mb-2 last:mb-0">
-                  <div className="bg-gray-800 rounded">
-                    <div className="flex items-center justify-between p-2 hover:bg-gray-700/50 transition-colors">
-                      <button
-                        onClick={() => toggleArtifact(artifact.id)}
-                        className="flex items-center gap-2 flex-1 text-left"
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4 text-gray-400" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-gray-400" />
-                        )}
-                        <FileCode className="w-4 h-4 text-gray-400" />
-                        <span className="font-mono text-sm text-gray-200">
-                          {artifact.path}
-                        </span>
-                        {artifact.changeType && (
-                          <span className={`text-xs px-2 py-0.5 rounded border ${getChangeTypeBadge(artifact.changeType)}`}>
-                            {artifact.changeType}
+                  <div className="bg-gray-800 rounded p-3 flex items-center justify-between hover:bg-gray-700/50 transition-colors">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <FileCode className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm text-gray-200 truncate">
+                            {artifact.path}
                           </span>
-                        )}
-                      </button>
-                      
-                      <div className="flex items-center gap-2">
-                        {isApplied ? (
-                          <>
-                            <span className="text-xs text-green-400 flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              Applied
+                          {artifact.changeType && (
+                            <span className={`text-xs px-2 py-0.5 rounded border ${getChangeTypeBadge(artifact.changeType)}`}>
+                              {artifact.changeType}
                             </span>
-                            <button
-                              onClick={() => handleUndoArtifact(artifact)}
-                              className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
-                            >
-                              Undo
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={() => handleApplyArtifact(artifact)}
-                            className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center gap-1"
-                          >
-                            <Check className="w-3 h-3" />
-                            Apply Fix
-                          </button>
-                        )}
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleViewInArtifacts(artifact)}
+                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 mt-1 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View in Artifact Viewer
+                        </button>
                       </div>
                     </div>
                     
-                    {isExpanded && (
-                      <div className="border-t border-gray-700 p-2 max-h-96 overflow-y-auto">
-                        <SyntaxHighlighter
-                          style={vscDarkPlus as any}
-                          language={artifact.language || 'text'}
-                          showLineNumbers
-                          customStyle={{
-                            margin: 0,
-                            fontSize: '0.875rem',
-                            background: 'transparent',
-                          }}
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      {isApplied ? (
+                        <>
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            Applied
+                          </span>
+                          <button
+                            onClick={() => handleUndoArtifact(artifact)}
+                            className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                          >
+                            Undo
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleApplyArtifact(artifact)}
+                          className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center gap-1"
                         >
-                          {artifact.content}
-                        </SyntaxHighlighter>
-                      </div>
-                    )}
+                          <Check className="w-3 h-3" />
+                          Apply Fix
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
