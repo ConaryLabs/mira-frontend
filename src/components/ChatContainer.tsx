@@ -5,12 +5,13 @@ import { useChatStore } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
 import { useChatPersistence } from '../hooks/useChatPersistence';
+import { useChatMessaging } from '../hooks/useChatMessaging';  // ADDED: Import the enhanced hook
 import { ChatMessage } from './ChatMessage';
 import { Send, AlertCircle, WifiOff, Wifi } from 'lucide-react';
 
 export const ChatContainer: React.FC = () => {
-  const { messages, addMessage } = useChatStore();
-  const { send, connectionState, subscribe } = useWebSocketStore();
+  const { messages, addMessage, setMessages } = useChatStore();
+  const { connectionState, subscribe } = useWebSocketStore();
   const { currentProject } = useAppState();
   const [input, setInput] = useState('');
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
@@ -19,6 +20,9 @@ export const ChatContainer: React.FC = () => {
   
   // CRITICAL: Initialize chat persistence to load history from backend
   useChatPersistence(connectionState);
+  
+  // CRITICAL: Use the enhanced messaging hook with full context
+  const { handleSend: sendWithContext } = useChatMessaging();
   
   // Subscribe to responses to clear waiting state
   useEffect(() => {
@@ -40,34 +44,9 @@ export const ChatContainer: React.FC = () => {
     
     const userMessage = input.trim();
     setInput('');
-    setIsWaitingForResponse(true);
     
-    // Add user message to chat
-    addMessage({
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: userMessage,
-      timestamp: Date.now()
-    });
-    
-    // Build metadata for context
-    const metadata: any = {
-      session_id: 'peter-eternal',
-    };
-    
-    // Add project context
-    if (currentProject) {
-      metadata.project_name = currentProject.name;
-      metadata.has_repository = currentProject.hasRepository;
-    }
-    
-    // Send message via WebSocket
-    await send({
-      type: 'chat',
-      content: userMessage,
-      project_id: currentProject?.id,
-      metadata
-    });
+    // Use the enhanced hook that includes ALL context
+    await sendWithContext(userMessage, setIsWaitingForResponse);
   };
   
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -79,100 +58,77 @@ export const ChatContainer: React.FC = () => {
   
   // Connection status component
   const ConnectionStatus = () => {
-    const statusConfig = {
-      'connected': {
-        icon: <Wifi className="w-4 h-4" />,
-        text: 'Connected',
-        className: 'text-green-500'
-      },
-      'connecting': {
-        icon: <AlertCircle className="w-4 h-4 animate-pulse" />,
-        text: 'Connecting...',
-        className: 'text-yellow-500'
-      },
-      'disconnected': {
-        icon: <WifiOff className="w-4 h-4" />,
-        text: 'Disconnected',
-        className: 'text-red-500'
-      },
-      'error': {
-        icon: <AlertCircle className="w-4 h-4" />,
-        text: 'Error',
-        className: 'text-red-500'
-      }
-    };
+    if (connectionState === 'connected') {
+      return (
+        <div className="flex items-center gap-2 text-green-500 text-sm">
+          <Wifi className="w-4 h-4" />
+          <span>Connected</span>
+        </div>
+      );
+    }
     
-    const config = statusConfig[connectionState as keyof typeof statusConfig] || statusConfig.disconnected;
+    if (connectionState === 'connecting') {
+      return (
+        <div className="flex items-center gap-2 text-yellow-500 text-sm">
+          <AlertCircle className="w-4 h-4 animate-pulse" />
+          <span>Connecting...</span>
+        </div>
+      );
+    }
     
     return (
-      <div className={`flex items-center gap-2 text-sm ${config.className}`}>
-        {config.icon}
-        <span>{config.text}</span>
+      <div className="flex items-center gap-2 text-red-500 text-sm">
+        <WifiOff className="w-4 h-4" />
+        <span>Disconnected</span>
       </div>
     );
   };
-  
+
   return (
-    <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden">
-      {/* Chat header with connection status */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-900">
-        <h2 className="text-lg font-semibold">Chat</h2>
+    <div className="flex flex-col h-full">
+      {/* Header with connection status */}
+      <div className="flex justify-between items-center p-4 border-b border-slate-700">
+        <h2 className="text-lg font-semibold text-slate-200">
+          {currentProject ? currentProject.name : 'Chat'}
+        </h2>
         <ConnectionStatus />
       </div>
-      
+
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <p>Start a conversation with Mira</p>
-          </div>
-        )}
-        
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
           <ChatMessage key={message.id} message={message} />
         ))}
-        
         {isWaitingForResponse && (
-          <div className="flex items-center gap-3 text-gray-400">
-            <div className="flex gap-1">
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span className="text-sm">Mira is thinking...</span>
+          <div className="flex items-center gap-2 text-slate-400 text-sm">
+            <div className="animate-pulse">●</div>
+            <span>Mira is thinking...</span>
           </div>
         )}
-        
         <div ref={messagesEndRef} />
       </div>
-      
+
       {/* Input area */}
-      <div className="border-t border-gray-800 bg-gray-900 p-4">
+      <div className="p-4 border-t border-slate-700">
         <div className="flex gap-2">
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
+            onKeyPress={handleKeyPress}
             placeholder="Message Mira..."
-            disabled={connectionState !== 'connected'}
-            className="flex-1 bg-gray-800 text-gray-100 rounded-lg px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 bg-slate-800 text-slate-100 rounded-lg px-4 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             rows={3}
+            disabled={connectionState !== 'connected'}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || connectionState !== 'connected'}
-            className="px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />
           </button>
         </div>
-        
-        {connectionState !== 'connected' && (
-          <p className="text-sm text-red-400 mt-2">
-            Cannot send messages while disconnected
-          </p>
-        )}
       </div>
     </div>
   );

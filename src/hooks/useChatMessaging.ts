@@ -3,16 +3,14 @@
 
 import { useCallback } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
+import { useChatStore } from '../stores/useChatStore';
 import { useAppState, useArtifactState } from '../stores/useAppState';
-import type { Message } from '../types';
 
 const ETERNAL_SESSION_ID = 'peter-eternal'; // Match backend default
 
-export const useChatMessaging = (
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  setIsWaitingForResponse: React.Dispatch<React.SetStateAction<boolean>>
-) => {
+export const useChatMessaging = () => {
   const send = useWebSocketStore(state => state.send);
+  const addMessage = useChatStore(state => state.addMessage);
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
   const { activeArtifact } = useArtifactState(); // KEY: Access active artifact
 
@@ -59,17 +57,17 @@ export const useChatMessaging = (
     return 'plaintext';
   }, []);
 
-  const handleSend = useCallback(async (content: string) => {
+  const handleSend = useCallback(async (content: string, setWaiting?: (waiting: boolean) => void) => {
     // Add user message immediately
-    const userMessage: Message = {
+    const userMessage = {
       id: `user-${Date.now()}`,
-      role: 'user',
+      role: 'user' as const,
       content,
       timestamp: Date.now()
     };
     
-    setMessages(prev => [...prev, userMessage]);
-    setIsWaitingForResponse(true);
+    addMessage(userMessage);
+    setWaiting?.(true);
 
     // CRITICAL: Enhanced message with FULL context including active file
     const message = {
@@ -127,18 +125,18 @@ export const useChatMessaging = (
       await send(message);
     } catch (error) {
       console.error('Send failed:', error);
-      setIsWaitingForResponse(false);
+      setWaiting?.(false);
     }
-  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, setMessages, setIsWaitingForResponse, getSessionId, detectLanguage]);
+  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, addMessage, getSessionId, detectLanguage]);
 
   const addSystemMessage = useCallback((content: string) => {
-    setMessages(prev => [...prev, {
+    addMessage({
       id: `sys-${Date.now()}`,
-      role: 'system',
+      role: 'system' as const,
       content,
       timestamp: Date.now()
-    }]);
-  }, [setMessages]);
+    });
+  }, [addMessage]);
 
   // Add helper to notify when project context changes
   const addProjectContextMessage = useCallback((projectName: string) => {
