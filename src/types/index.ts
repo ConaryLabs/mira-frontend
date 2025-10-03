@@ -102,7 +102,6 @@ export interface ChatMessage extends WebSocketMessage {
     file_path?: string;
     language?: string;
     project_context?: Project;
-    // Remove attachment_id since it's not part of Project
     repo_root?: string;
     has_repository?: boolean;
   };
@@ -131,6 +130,106 @@ export interface CodeIntelligenceCommand extends WebSocketMessage {
   method: string;
   params: any;
 }
+
+// ===================================
+// 📄 DOCUMENT PROCESSING TYPES (NEW)
+// ===================================
+
+// Document command message
+export interface DocumentCommand extends WebSocketMessage {
+  type: 'document_command';
+  method: 'documents.upload' | 'documents.search' | 'documents.retrieve' | 'documents.list' | 'documents.delete';
+  params: DocumentParams;
+}
+
+// Union type for document params
+export type DocumentParams = UploadParams | SearchParams | RetrieveParams | ListParams | DeleteParams;
+
+// Upload params
+export interface UploadParams {
+  project_id: string;
+  file_name: string;
+  content: string; // base64 encoded
+}
+
+// Search params
+export interface SearchParams {
+  project_id: string;
+  query: string;
+  limit?: number;
+}
+
+// Retrieve params
+export interface RetrieveParams {
+  document_id: string;
+}
+
+// List params
+export interface ListParams {
+  project_id: string;
+}
+
+// Delete params
+export interface DeleteParams {
+  document_id: string;
+}
+
+// Progress update from backend
+export interface DocumentProgress {
+  type: 'document_processing_progress';
+  file_name: string;
+  progress: number; // 0.0 to 1.0
+  status: 'starting' | 'processing' | 'completed' | 'failed';
+  message?: string;
+}
+
+// Completed document response
+export interface DocumentProcessed {
+  type: 'document_processed';
+  document: DocumentMetadata;
+}
+
+// Document list response
+export interface DocumentList {
+  type: 'document_list';
+  documents: DocumentMetadata[];
+}
+
+// Document search results
+export interface DocumentSearchResults {
+  type: 'document_search_results';
+  results: DocumentSearchResult[];
+}
+
+// Single search result
+export interface DocumentSearchResult {
+  document_id: string;
+  file_name: string;
+  chunk_index: number;
+  content: string;
+  score: number;
+}
+
+// Document metadata
+export interface DocumentMetadata {
+  id: string;
+  file_name: string;
+  file_type: string;
+  size_bytes: number;
+  word_count: number;
+  chunk_count: number;
+  created_at: string;
+  metadata?: {
+    title?: string;
+    author?: string;
+    page_count?: number;
+    [key: string]: any;
+  };
+}
+
+// ===================================
+// END DOCUMENT TYPES
+// ===================================
 
 // Git-related types
 export interface GitStatus {
@@ -190,7 +289,7 @@ export interface GitChange {
 
 // Hook return types
 export interface WebSocketHook {
-  send: (message: WebSocketMessage) => Promise<any>; // 🚀 Return response instead of void
+  send: (message: WebSocketMessage) => Promise<any>;
   lastMessage: any;
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'error';
   connect: () => void;

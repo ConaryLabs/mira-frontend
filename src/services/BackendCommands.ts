@@ -243,6 +243,48 @@ export class BackendCommands {
     });
   }
 
+  // ==================== DOCUMENT PROCESSING COMMANDS ====================
+
+  async uploadDocument(projectId: string, fileName: string, content: string) {
+    return this.send({
+      type: 'document_command',
+      method: 'documents.upload',
+      params: { project_id: projectId, file_name: fileName, content }
+    });
+  }
+
+  async searchDocuments(projectId: string, query: string, limit: number = 10) {
+    return this.send({
+      type: 'document_command',
+      method: 'documents.search',
+      params: { project_id: projectId, query, limit }
+    });
+  }
+
+  async listDocuments(projectId: string) {
+    return this.send({
+      type: 'document_command',
+      method: 'documents.list',
+      params: { project_id: projectId }
+    });
+  }
+
+  async retrieveDocument(documentId: string) {
+    return this.send({
+      type: 'document_command',
+      method: 'documents.retrieve',
+      params: { document_id: documentId }
+    });
+  }
+
+  async deleteDocument(documentId: string) {
+    return this.send({
+      type: 'document_command',
+      method: 'documents.delete',
+      params: { document_id: documentId }
+    });
+  }
+
   // ==================== CHAT / MESSAGE COMMANDS ====================
 
   async sendChat(message: string, projectId?: string, metadata?: any) {
