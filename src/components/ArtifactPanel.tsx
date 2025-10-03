@@ -60,7 +60,7 @@ export const ArtifactPanel: React.FC = () => {
   // If no artifacts exist, show a helpful message
   if (artifacts.length === 0) {
     return (
-      <div className="w-[40%] min-w-[400px] border-l border-gray-700 bg-gray-900 flex flex-col">
+      <div className="flex-none w-1/2 min-w-[600px] border-l border-gray-700 bg-gray-900 flex flex-col">
         <div className="flex-1 flex items-center justify-center p-8 text-center">
           <div className="text-gray-400">
             <FileText size={48} className="mx-auto mb-4 opacity-50" />
@@ -80,7 +80,7 @@ export const ArtifactPanel: React.FC = () => {
   const isPreviewable = activeArtifact.type === 'text/html' || activeArtifact.type === 'text/markdown';
 
   return (
-    <div className="w-[40%] min-w-[400px] border-l border-gray-700 bg-gray-900 flex flex-col">
+    <div className="flex-none w-1/2 min-w-[600px] border-l border-gray-700 bg-gray-900 flex flex-col">
       {/* Header with tabs */}
       <div className="border-b border-gray-700">
         {/* Tabs */}

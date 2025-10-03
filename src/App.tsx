@@ -68,28 +68,28 @@ function App() {
         </div>
       </div>
       
+      {/* Main content area - removed nested flex wrapper */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex">
-          {/* Tab Content */}
-          {activeTab === 'chat' && <ChatContainer />}
-          
-          {activeTab === 'documents' && currentProject && (
-            <DocumentsView projectId={currentProject.id} />
-          )}
-          
-          {activeTab === 'documents' && !currentProject && (
-            <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
-              <div className="text-center">
-                <FileText className="w-16 h-16 mx-auto mb-4 text-gray-700" />
-                <p className="text-lg mb-2">No Project Selected</p>
-                <p className="text-sm">Select a project to upload and search documents</p>
-              </div>
+        {activeTab === 'chat' && (
+          <>
+            <ChatContainer />
+            {showArtifacts && <ArtifactPanel />}
+          </>
+        )}
+        
+        {activeTab === 'documents' && currentProject && (
+          <DocumentsView projectId={currentProject.id} />
+        )}
+        
+        {activeTab === 'documents' && !currentProject && (
+          <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
+            <div className="text-center">
+              <FileText className="w-16 h-16 mx-auto mb-4 text-gray-700" />
+              <p className="text-lg mb-2">No Project Selected</p>
+              <p className="text-sm">Select a project to upload and search documents</p>
             </div>
-          )}
-          
-          {/* Artifact Panel - only show on chat tab */}
-          {activeTab === 'chat' && showArtifacts && <ArtifactPanel />}
-        </div>
+          </div>
+        )}
       </div>
       
       <QuickFileOpen
