@@ -12,7 +12,7 @@ import { Send, AlertCircle, WifiOff, Wifi } from 'lucide-react';
 export const ChatContainer: React.FC = () => {
   const { messages, addMessage, setMessages } = useChatStore();
   const { connectionState, subscribe } = useWebSocketStore();
-  const { currentProject } = useAppState();
+  const { currentProject, showArtifacts } = useAppState();
   const [input, setInput] = useState('');
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -85,7 +85,7 @@ export const ChatContainer: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={`flex flex-col h-full ${showArtifacts ? 'w-1/2' : 'flex-1'}`}>
       {/* Header with connection status */}
       <div className="flex justify-between items-center p-4 border-b border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200">
