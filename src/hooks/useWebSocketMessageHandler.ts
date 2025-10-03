@@ -146,7 +146,7 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
 
-      case 'projects_list':
+      case 'project_list':  // FIXED: Changed from 'projects_list' to match backend
         console.log('Projects list received:', data.projects);
         if (data.projects && Array.isArray(data.projects)) {
           const formattedProjects: Project[] = data.projects.map((p: any) => ({

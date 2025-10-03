@@ -18,7 +18,7 @@ export const ProjectDropdown: React.FC = () => {
   const [isDeletingProject, setIsDeletingProject] = useState<string | null>(null);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { currentProject, projects, setCurrentProject } = useAppState();
+  const { currentProject, projects, setCurrentProject, setProjects } = useAppState();
   const send = useWebSocketStore(state => state.send);
   const connectionState = useWebSocketStore(state => state.connectionState);
 
@@ -117,19 +117,24 @@ export const ProjectDropdown: React.FC = () => {
     console.log('Deleting project:', project.name);
 
     try {
-      await send({
-        type: 'project_command',
-        method: 'project.delete',
-        params: { id: project.id }  // Backend expects 'id', not 'project_id'
-      });
-
-      console.log('Project deleted successfully');
-
+      // Clear current project IMMEDIATELY if it's the one being deleted
       if (currentProject?.id === project.id) {
         setCurrentProject(null);
       }
 
-      // Refresh project list after deletion
+      // Send delete command to backend
+      await send({
+        type: 'project_command',
+        method: 'project.delete',
+        params: { id: project.id }
+      });
+
+      console.log('Project deleted successfully');
+
+      // IMMEDIATE UI update - remove from local state
+      setProjects(prevProjects => prevProjects.filter(p => p.id !== project.id));
+
+      // THEN refresh from backend to confirm (reduced delay)
       setTimeout(async () => {
         try {
           await send({
@@ -140,7 +145,7 @@ export const ProjectDropdown: React.FC = () => {
         } catch (error) {
           console.error('Failed to refresh projects after deletion:', error);
         }
-      }, 500);
+      }, 100);
 
     } catch (error) {
       console.error('Failed to delete project:', error);
@@ -181,7 +186,7 @@ export const ProjectDropdown: React.FC = () => {
         } catch (error) {
           console.error('Failed to refresh project list:', error);
         }
-      }, 500);
+      }, 100);
       
       setNewProjectName('');
       setShowNewProject(false);
