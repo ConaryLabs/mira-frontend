@@ -1,191 +1,80 @@
 // src/hooks/useMessageHandler.ts
+// FIXED: Removed duplicate file_content handling (now only in useWebSocketMessageHandler)
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useAppState } from '../stores/useAppState';
 
-export function useMessageHandler() {
-  const { subscribe } = useWebSocketStore();
-  const { addMessage } = useChatStore();
-  const { setProjects, setCurrentProject } = useAppState();
-  
+export const useMessageHandler = () => {
+  const subscribe = useWebSocketStore(state => state.subscribe);
+  const { 
+    addMessage, 
+    startStreaming,
+    appendStreamContent,
+    endStreaming
+  } = useChatStore();
+
   useEffect(() => {
-    const unsubscribe = subscribe('message-handler', (message) => {
-      console.log('[Handler] Processing message:', message.type);
-      
-      // Log the full message for debugging
-      if (message.type === 'data') {
-        console.log('[Handler] Data message content:', message.data);
-      }
-      
-      switch (message.type) {
-        case 'response':
-          handleChatResponse(message);
-          break;
-          
-        case 'data':
-          handleDataMessage(message);
-          break;
-          
-        case 'status':
-          handleStatusMessage(message);
-          break;
-          
-        case 'error':
-          handleErrorMessage(message);
-          break;
-          
-        default:
-          console.log('[Handler] Unhandled message type:', message.type, message);
+    const unsubscribe = subscribe('chat-handler', (message) => {
+      // Only handle 'response' type messages (chat responses from Claude)
+      if (message.type === 'response') {
+        handleChatResponse(message);
       }
     });
-    
+
     return unsubscribe;
-  }, []);
-  
+  }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming]);
+
   function handleChatResponse(message: any) {
-    console.log('[Handler] Chat response:', message.data);
+    console.log('[Handler] Chat response received');
     
-    // FIXED: Handle both error fix responses (with artifacts) and regular chat responses
-    if (message.data?.artifacts && Array.isArray(message.data.artifacts) && message.data.artifacts.length > 0) {
-      console.log('[Handler] Error fix response with', message.data.artifacts.length, 'artifacts');
-      
-      const artifacts = message.data.artifacts.map((artifact: any) => ({
-        id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        path: artifact.path,
-        content: artifact.content,
-        language: detectLanguage(artifact.path),
-        changeType: artifact.change_type || 'primary',
-        originalContent: artifact.original_content,
-      }));
-      
-      addMessage({
-        id: message.id || `msg_${Date.now()}`,
-        role: 'assistant',
-        content: message.data.content || 'Here are the fixes for your code:',
-        artifacts,
-        timestamp: Date.now(),
-        metadata: {
-          fix_type: message.data.fix_type,
-          confidence: message.data.confidence,
-        }
-      });
-    } else if (message.data?.content) {
-      // FIXED: Regular chat response - just add the message
-      console.log('[Handler] Regular chat response');
-      
-      addMessage({
-        id: message.id || `msg_${Date.now()}`,
-        role: 'assistant',
-        content: message.data.content,
-        timestamp: Date.now(),
-        metadata: message.data.metadata,
-      });
-    } else {
-      console.warn('[Handler] Response message missing content:', message.data);
+    // Handle streaming content
+    if (message.streaming) {
+      if (message.content) {
+        appendStreamContent(message.content);
+      }
+      return;
     }
+    
+    // Handle complete message
+    if (message.complete) {
+      endStreaming();
+      return;
+    }
+    
+    // Handle regular (non-streaming) response
+    const assistantMessage = {
+      id: `assistant-${Date.now()}`,
+      role: 'assistant' as const,
+      content: message.content || message.message || '',
+      timestamp: Date.now(),
+      thinking: message.thinking,
+      artifacts: message.artifacts || []
+    };
+    
+    addMessage(assistantMessage);
+    
+    // Handle artifacts if present
+    if (message.artifacts && message.artifacts.length > 0) {
+      console.log('[Handler] Response includes artifacts:', message.artifacts.length);
+    }
+    
+    // Handle data messages that contain artifacts
+    handleDataMessage(message.data);
   }
   
-  function handleDataMessage(message: any) {
-    if (!message.data) return;
+  function handleDataMessage(data: any) {
+    if (!data) return;
     
-    const { data } = message;
+    // REMOVED: file_content handling - now only in useWebSocketMessageHandler
+    // This prevents duplicate artifact creation
     
-    if (data.projects) {
-      setProjects(data.projects);
-    }
-    
-    if (data.project) {
-      setCurrentProject(data.project);
-    }
-    
-    // Handle file content from git.file command
-    if (data.type === 'file_content' && data.content && data.path) {
-      console.log('[Handler] Creating artifact for file:', data.path);
-      
-      // Determine the correct MIME type based on file extension
-      const language = detectLanguage(data.path);
-      const artifactType = getArtifactType(language);
-      
-      // Create an artifact from the file content
-      const artifact = {
-        id: `file_${Date.now()}`,
-        title: data.path.split('/').pop() || 'untitled',
-        content: data.content,
-        type: artifactType,
-        language: language,
-        linkedFile: data.path,
-        created: Date.now(),
-        modified: Date.now()
-      };
-      
-      // Add artifact and set it as active
-      const { addArtifact, setShowArtifacts } = useAppState.getState();
-      addArtifact(artifact);
-      setShowArtifacts(true);
-    }
-    
+    // Only handle artifact objects directly attached to chat responses
     if (data.artifact) {
       const { addArtifact, setShowArtifacts } = useAppState.getState();
       addArtifact(data.artifact);
       setShowArtifacts(true);
     }
-  }
-  
-  function handleStatusMessage(message: any) {
-    console.log('[Handler] Status:', message.message);
-  }
-  
-  function handleErrorMessage(message: any) {
-    console.error('[Handler] Error:', message.message || message.error);
-    
-    addMessage({
-      id: `error_${Date.now()}`,
-      role: 'system',
-      content: `⚠️ Error: ${message.message || message.error}`,
-      timestamp: Date.now(),
-    });
-  }
-  
-  function detectLanguage(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase();
-    const languageMap: Record<string, string> = {
-      'rs': 'rust',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'py': 'python',
-      'go': 'go',
-      'java': 'java',
-      'cpp': 'cpp',
-      'c': 'c',
-      'cs': 'csharp',
-      'rb': 'ruby',
-      'php': 'php',
-      'md': 'markdown',
-      'json': 'json',
-      'yaml': 'yaml',
-      'yml': 'yaml',
-      'toml': 'toml',
-    };
-    
-    return languageMap[ext || ''] || 'text';
-  }
-  
-  function getArtifactType(language: string): "text/markdown" | "application/javascript" | "application/typescript" | "text/html" | "text/css" | "application/json" | "text/python" | "text/rust" | "text/plain" {
-    const typeMap: Record<string, any> = {
-      'rust': 'text/rust',
-      'typescript': 'application/typescript',
-      'javascript': 'application/javascript',
-      'python': 'text/python',
-      'markdown': 'text/markdown',
-      'html': 'text/html',
-      'css': 'text/css',
-      'json': 'application/json',
-    };
-    
-    return typeMap[language] || 'text/plain';
   }
 }

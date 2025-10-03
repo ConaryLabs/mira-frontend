@@ -9,10 +9,10 @@ import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import { useMessageHandler } from './hooks/useMessageHandler';
-import { MessageSquare, FileCode, FileText } from 'lucide-react';
+import { MessageSquare, FileText } from 'lucide-react';
 import './App.css';
 
-type Tab = 'chat' | 'files' | 'documents';
+type Tab = 'chat' | 'documents';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
@@ -39,7 +39,6 @@ function App() {
   
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'chat', label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'files', label: 'Files', icon: <FileCode className="w-4 h-4" /> },
     { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
   ];
   
@@ -73,16 +72,6 @@ function App() {
         <div className="flex-1 flex">
           {/* Tab Content */}
           {activeTab === 'chat' && <ChatContainer />}
-          
-          {activeTab === 'files' && (
-            <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
-              <div className="text-center">
-                <FileCode className="w-16 h-16 mx-auto mb-4 text-gray-700" />
-                <p className="text-lg mb-2">File Browser</p>
-                <p className="text-sm">Coming soon - use Cmd+P for quick file access</p>
-              </div>
-            </div>
-          )}
           
           {activeTab === 'documents' && currentProject && (
             <DocumentsView projectId={currentProject.id} />

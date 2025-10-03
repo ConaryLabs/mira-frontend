@@ -1,10 +1,9 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// Add file_content artifact creation to the global handler
+// FIXED: Set active artifact after creation + proper artifact state management
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useArtifacts } from './useArtifacts'; // Import artifacts hook
 import type { Project, Artifact } from '../types';
 
 // Type alias for allowed artifact types
@@ -20,11 +19,9 @@ export const useWebSocketMessageHandler = () => {
     updateGitStatus, 
     addModifiedFile,
     clearModifiedFiles,
-    setShowFileExplorer
+    setShowFileExplorer,
+    addArtifact
   } = useAppState();
-  
-  // Access artifact functions for file_content handling
-  const { addArtifact } = useArtifacts();
 
   useEffect(() => {
     const unsubscribe = subscribe('global-message-handler', (message) => {
@@ -49,8 +46,6 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
         
-      // REMOVED: case 'response' - let useMessageHandler.ts handle chat responses
-      
       case 'status':
         console.log('Status:', message.message);
         break;
@@ -85,7 +80,6 @@ export const useWebSocketMessageHandler = () => {
       case 'html': return 'text/html';
       case 'css': return 'text/css';
       case 'md': return 'text/markdown';
-      // Map unsupported types to text/plain
       case 'toml': case 'yaml': case 'yml': case 'sh': case 'bash': case 'txt': case 'log':
         return 'text/plain';
       default: return 'text/plain';
@@ -117,11 +111,11 @@ export const useWebSocketMessageHandler = () => {
     
     if (!data.type) {
       console.log('No type field - letting chat system handle memory data');
-      return; // Let memory data pass through to chat system
+      return;
     }
     
     switch (data.type) {
-      // NEW: Handle file_content to create artifacts
+      // Handle file_content to create artifacts
       case 'file_content':
         console.log('File content received, creating artifact:', {
           path: data.path,
@@ -129,7 +123,7 @@ export const useWebSocketMessageHandler = () => {
         });
         
         if (data.content !== undefined) {
-          const newArtifact = {
+          const newArtifact: Artifact = {
             id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
             title: data.path?.split('/').pop() || 'Unknown File',
             content: data.content || '// No content',
@@ -141,50 +135,36 @@ export const useWebSocketMessageHandler = () => {
           };
           
           console.log('Creating artifact:', newArtifact.title, newArtifact.type);
+          
+          // CRITICAL FIX: addArtifact already sets it active and shows panel
+          // but we call it explicitly anyway to ensure context sharing works
           addArtifact(newArtifact);
-          console.log('Artifact created successfully');
+          
+          console.log('Artifact created and activated:', newArtifact.id);
         } else {
-          console.warn('No content in file_content message');
+          console.warn('Received file_content without content');
         }
         break;
-      
-      case 'project_list':
-        console.log('Project list received:', data.projects);
-        if (data.projects && Array.isArray(data.projects)) {
-          const processedProjects: Project[] = data.projects.map((project: any) => {
-            console.log('Processing project:', {
-              id: project.id,
-              name: project.name,
-              has_repository: project.has_repository,
-              repository_url: project.repository_url,
-              import_status: project.import_status
-            });
-            
-            return {
-              id: project.id,
-              name: project.name,
-              description: project.description,
-              tags: project.tags || [],
-              lastAccessed: project.last_accessed || Date.now(),
-              created: project.created || Date.now(),
-              hasRepository: Boolean(project.has_repository),
-              repositoryUrl: project.repository_url,
-            };
-          });
-          
-          console.log('Setting processed projects:', processedProjects);
-          setProjects(processedProjects);
 
-          // CRITICAL: Update current project if it exists in the new list
-          const { currentProject } = useAppState.getState();
-          if (currentProject) {
-            const updatedCurrentProject = processedProjects.find(p => p.id === currentProject.id);
-            if (updatedCurrentProject) {
-              console.log('Updating current project with latest data:', {
-                old: { hasRepository: currentProject.hasRepository },
-                new: { hasRepository: updatedCurrentProject.hasRepository }
-              });
-              setCurrentProject(updatedCurrentProject);
+      case 'projects_list':
+        console.log('Projects list received:', data.projects);
+        if (data.projects && Array.isArray(data.projects)) {
+          const formattedProjects: Project[] = data.projects.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            tags: p.tags || [],
+            lastAccessed: p.last_accessed || Date.now(),
+            created: p.created || Date.now(),
+            hasRepository: Boolean(p.has_repository),
+            repositoryUrl: p.repository_url,
+          }));
+          setProjects(formattedProjects);
+          
+          if (data.active_project_id) {
+            const activeProject = formattedProjects.find(p => p.id === data.active_project_id);
+            if (activeProject) {
+              setCurrentProject(activeProject);
             }
           }
         }
@@ -201,9 +181,7 @@ export const useWebSocketMessageHandler = () => {
         if (data.status) {
           updateGitStatus(data.status);
           
-          // Update modified files list
           if (data.status.modified && Array.isArray(data.status.modified)) {
-            // Clear existing and add new modified files
             clearModifiedFiles();
             data.status.modified.forEach((file: string) => {
               addModifiedFile(file);
@@ -226,13 +204,11 @@ export const useWebSocketMessageHandler = () => {
             repositoryUrl: data.project.repository_url,
           };
           
-          // Update current project if it's the one being updated
           const { currentProject } = useAppState.getState();
           if (currentProject && currentProject.id === updatedProject.id) {
             setCurrentProject(updatedProject);
           }
           
-          // Update projects list
           const { projects } = useAppState.getState();
           const updatedProjects = projects.map(p => 
             p.id === updatedProject.id ? updatedProject : p
