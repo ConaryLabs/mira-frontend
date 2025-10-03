@@ -1,5 +1,5 @@
 // src/hooks/useMessageHandler.ts
-// FIXED: Removed duplicate file_content handling (now only in useWebSocketMessageHandler)
+// Fixed to read content from message.data.content
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -27,7 +27,7 @@ export const useMessageHandler = () => {
   }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming]);
 
   function handleChatResponse(message: any) {
-    console.log('[Handler] Chat response received');
+    console.log('[Handler] Chat response received:', message);
     
     // Handle streaming content
     if (message.streaming) {
@@ -43,21 +43,26 @@ export const useMessageHandler = () => {
       return;
     }
     
+    // FIXED: Read content from message.data.content (backend structure)
+    const content = message.data?.content || message.content || message.message || '';
+    const artifacts = message.data?.artifacts || message.artifacts || [];
+    
     // Handle regular (non-streaming) response
     const assistantMessage = {
       id: `assistant-${Date.now()}`,
       role: 'assistant' as const,
-      content: message.content || message.message || '',
+      content,
       timestamp: Date.now(),
       thinking: message.thinking,
-      artifacts: message.artifacts || []
+      artifacts
     };
     
+    console.log('[Handler] Adding message with content length:', content.length);
     addMessage(assistantMessage);
     
     // Handle artifacts if present
-    if (message.artifacts && message.artifacts.length > 0) {
-      console.log('[Handler] Response includes artifacts:', message.artifacts.length);
+    if (artifacts.length > 0) {
+      console.log('[Handler] Response includes artifacts:', artifacts.length);
     }
     
     // Handle data messages that contain artifacts
