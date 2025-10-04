@@ -36,6 +36,33 @@ interface WebSocketStore {
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3102/ws';
 
+// Message types we explicitly handle (won't log as unhandled)
+const KNOWN_MESSAGE_TYPES = new Set([
+  'status',
+  'connection_ready',
+  'heartbeat',
+  'response',
+  'data',
+  'error',
+]);
+
+const KNOWN_DATA_TYPES = new Set([
+  'project_list',
+  'document_list',
+  'document_deleted',
+  'document_processing_started',
+  'document_processing_progress',
+  'document_processed',
+  'document_content',
+  'memory_data',
+]);
+
+// Messages we don't need to log (too noisy)
+const SILENT_TYPES = new Set([
+  'heartbeat',
+  'document_processing_progress', // Can spam during upload
+]);
+
 export const useWebSocketStore = create<WebSocketStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial state
@@ -52,9 +79,7 @@ export const useWebSocketStore = create<WebSocketStore>()(
     connect: () => {
       const state = get();
       
-      // Don't connect if already connected or connecting
       if (state.connectionState === 'connected' || state.connectionState === 'connecting') {
-        console.log('[WS] Already connected or connecting');
         return;
       }
       
@@ -72,14 +97,12 @@ export const useWebSocketStore = create<WebSocketStore>()(
           reconnectDelay: 1000 
         });
         
-        // Process any queued messages
         get().processMessageQueue();
       };
       
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          console.log('[WS] Received:', message.type);
           get().handleMessage(message);
         } catch (error) {
           console.error('[WS] Failed to parse message:', error);
@@ -95,7 +118,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
         console.log('[WS] Connection closed');
         set({ socket: null, connectionState: 'disconnected' });
         
-        // Schedule reconnect if we haven't exceeded attempts
         const { reconnectAttempts, maxReconnectAttempts } = get();
         if (reconnectAttempts < maxReconnectAttempts) {
           get().scheduleReconnect();
@@ -118,7 +140,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
       const { socket, connectionState } = get();
       
       if (connectionState !== 'connected' || !socket) {
-        console.log('[WS] Queueing message (not connected):', message.type);
         set(state => ({ 
           messageQueue: [...state.messageQueue, message] 
         }));
@@ -128,10 +149,13 @@ export const useWebSocketStore = create<WebSocketStore>()(
       try {
         const messageStr = JSON.stringify(message);
         socket.send(messageStr);
-        console.log('[WS] Sent:', message.type);
+        
+        // Only log sent messages if they're interesting
+        if (message.type !== 'heartbeat' && message.method !== 'memory.get_recent') {
+          console.log('[WS] Sent:', message.type, message.method || '');
+        }
       } catch (error) {
         console.error('[WS] Failed to send message:', error);
-        // Queue for retry
         set(state => ({ 
           messageQueue: [...state.messageQueue, message] 
         }));
@@ -142,7 +166,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
       const { listeners } = get();
       listeners.set(id, callback);
       
-      // Return unsubscribe function
       return () => {
         const { listeners } = get();
         listeners.delete(id);
@@ -156,6 +179,29 @@ export const useWebSocketStore = create<WebSocketStore>()(
     handleMessage: (message: WebSocketMessage) => {
       // Update last message
       set({ lastMessage: message });
+      
+      // Smart logging - reduce noise
+      const shouldLog = !SILENT_TYPES.has(message.type) && 
+                        !SILENT_TYPES.has(message.data?.type);
+      
+      if (shouldLog) {
+        if (message.type === 'status') {
+          console.log('[WS] Status:', message.message);
+        } else if (message.type === 'data') {
+          const dataType = message.data?.type;
+          if (dataType && KNOWN_DATA_TYPES.has(dataType)) {
+            console.log(`[WS] Data: ${dataType}`);
+          } else if (dataType) {
+            console.warn(`[WS] Unknown data type: ${dataType}`);
+          }
+        } else if (message.type === 'error') {
+          console.error('[WS] Error:', message.message);
+        } else if (message.type === 'response') {
+          // Don't log responses, they're handled by ChatArea
+        } else if (!KNOWN_MESSAGE_TYPES.has(message.type)) {
+          console.warn(`[WS] Unknown message type: ${message.type}`);
+        }
+      }
       
       // Notify all listeners
       const { listeners } = get();

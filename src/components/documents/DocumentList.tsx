@@ -103,8 +103,12 @@ export function DocumentList({ projectId }: DocumentListProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
+  const formatDate = (timestamp: string | number): string => {
+    // Handle unix timestamp (number) or ISO string
+    const date = typeof timestamp === 'number' 
+      ? new Date(timestamp * 1000) // Unix timestamp in seconds
+      : new Date(timestamp);
+    
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -165,10 +169,22 @@ export function DocumentList({ projectId }: DocumentListProps) {
                 
                 <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
                   <span>{formatSize(doc.size_bytes)}</span>
-                  <span>•</span>
-                  <span>{doc.word_count.toLocaleString()} words</span>
-                  <span>•</span>
-                  <span>{doc.chunk_count} chunks</span>
+                  
+                  {/* Only show word count if available */}
+                  {doc.word_count != null && (
+                    <>
+                      <span>•</span>
+                      <span>{doc.word_count.toLocaleString()} words</span>
+                    </>
+                  )}
+                  
+                  {/* Only show chunk count if available */}
+                  {doc.chunk_count != null && (
+                    <>
+                      <span>•</span>
+                      <span>{doc.chunk_count} chunks</span>
+                    </>
+                  )}
                 </div>
                 
                 <div className="flex items-center gap-1 text-xs text-gray-600 mt-1">
