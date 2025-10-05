@@ -1,11 +1,25 @@
-// src/components/ChatInput.tsx
-import React, { useState, useRef, KeyboardEvent, useEffect } from 'react';
+// src/components/ChatInput.tsx - PERFORMANCE FIX
+
+import React, { useState, useRef, KeyboardEvent, useEffect, useCallback, useMemo } from 'react';
 import { Send } from 'lucide-react';
 
 interface ChatInputProps {
   onSend: (content: string) => Promise<void>;
   disabled?: boolean;
   placeholder?: string;
+}
+
+// Simple debounce utility
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+  
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ 
@@ -16,27 +30,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [content, setContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize function
-  const resizeTextarea = () => {
+  // Auto-resize function (unchanged)
+  const resizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     
-    // Reset height to auto to get the correct scrollHeight
     textarea.style.height = 'auto';
     
     if (content.trim() === '') {
-      // If content is empty, reset to single line height
-      textarea.style.height = '24px'; // min-h-[24px] from CSS
+      textarea.style.height = '24px';
     } else {
-      // Set height based on content, with max height
       textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
     }
-  };
-
-  // Resize when content changes
-  useEffect(() => {
-    resizeTextarea();
   }, [content]);
+
+  // PERFORMANCE FIX: Debounced resize (only runs after 50ms of no changes)
+  const debouncedResize = useMemo(
+    () => debounce(resizeTextarea, 50),
+    [resizeTextarea]
+  );
+
+  // PERFORMANCE FIX: Use debounced version instead of immediate resize
+  useEffect(() => {
+    debouncedResize();
+    
+    // Cleanup: cancel pending debounced calls on unmount
+    return () => {
+      // TypeScript doesn't know about the timeout, so we'll just let it fire
+      // (harmless since component is unmounted)
+    };
+  }, [content, debouncedResize]);
 
   // Keep focus in textarea
   useEffect(() => {
@@ -55,7 +78,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       await onSend(messageToSend);
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Restore content on error
       setContent(messageToSend);
     }
   };
@@ -69,7 +91,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value);
-    // Note: We removed the resize logic from here since it's now in useEffect
   };
 
   const canSend = !disabled && content.trim().length > 0;

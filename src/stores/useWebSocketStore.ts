@@ -1,4 +1,4 @@
-// src/stores/useWebSocketStore.ts
+// src/stores/useWebSocketStore.ts - PERFORMANCE FIX
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -6,6 +6,12 @@ import { subscribeWithSelector } from 'zustand/middleware';
 interface WebSocketMessage {
   type: string;
   [key: string]: any;
+}
+
+// NEW: Subscriber with optional message type filter
+interface Subscriber {
+  callback: (message: WebSocketMessage) => void;
+  messageTypes?: string[]; // If undefined, receives all messages
 }
 
 interface WebSocketStore {
@@ -19,13 +25,17 @@ interface WebSocketStore {
   // Message handling
   lastMessage: WebSocketMessage | null;
   messageQueue: WebSocketMessage[];
-  listeners: Map<string, (message: WebSocketMessage) => void>;
+  listeners: Map<string, Subscriber>; // CHANGED: Now stores Subscriber objects
   
   // Actions
   connect: () => void;
   disconnect: () => void;
   send: (message: any) => Promise<void>;
-  subscribe: (id: string, callback: (message: WebSocketMessage) => void) => () => void;
+  subscribe: (
+    id: string, 
+    callback: (message: WebSocketMessage) => void,
+    messageTypes?: string[] // NEW: Optional message type filter
+  ) => () => void;
   
   // Internal actions
   setConnectionState: (state: WebSocketStore['connectionState']) => void;
@@ -60,7 +70,7 @@ const KNOWN_DATA_TYPES = new Set([
 // Messages we don't need to log (too noisy)
 const SILENT_TYPES = new Set([
   'heartbeat',
-  'document_processing_progress', // Can spam during upload
+  'document_processing_progress',
 ]);
 
 export const useWebSocketStore = create<WebSocketStore>()(
@@ -69,68 +79,70 @@ export const useWebSocketStore = create<WebSocketStore>()(
     socket: null,
     connectionState: 'disconnected',
     reconnectAttempts: 0,
-    maxReconnectAttempts: 5,
+    maxReconnectAttempts: 10,
     reconnectDelay: 1000,
     lastMessage: null,
     messageQueue: [],
     listeners: new Map(),
     
-    // Connection management
     connect: () => {
-      const state = get();
+      const { socket, connectionState } = get();
       
-      if (state.connectionState === 'connected' || state.connectionState === 'connecting') {
+      if (socket?.readyState === WebSocket.OPEN || connectionState === 'connecting') {
         return;
       }
       
       set({ connectionState: 'connecting' });
-      console.log('[WS] Connecting to', WS_URL);
       
-      const socket = new WebSocket(WS_URL);
-      
-      socket.onopen = () => {
-        console.log('[WS] Connected successfully');
-        set({ 
-          socket, 
-          connectionState: 'connected',
-          reconnectAttempts: 0,
-          reconnectDelay: 1000 
-        });
+      try {
+        const ws = new WebSocket(WS_URL);
         
-        get().processMessageQueue();
-      };
-      
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          get().handleMessage(message);
-        } catch (error) {
-          console.error('[WS] Failed to parse message:', error);
-        }
-      };
-      
-      socket.onerror = (error) => {
-        console.error('[WS] Socket error:', error);
+        ws.onopen = () => {
+          console.log('[WS] Connected');
+          set({ 
+            connectionState: 'connected', 
+            reconnectAttempts: 0,
+            socket: ws 
+          });
+          
+          // Process queued messages
+          get().processMessageQueue();
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            get().handleMessage(message);
+          } catch (error) {
+            console.error('[WS] Failed to parse message:', error);
+          }
+        };
+        
+        ws.onerror = (error) => {
+          console.error('[WS] Error:', error);
+          set({ connectionState: 'error' });
+        };
+        
+        ws.onclose = () => {
+          console.log('[WS] Disconnected');
+          set({ connectionState: 'disconnected', socket: null });
+          
+          const { reconnectAttempts, maxReconnectAttempts } = get();
+          if (reconnectAttempts < maxReconnectAttempts) {
+            get().scheduleReconnect();
+          }
+        };
+        
+        set({ socket: ws });
+      } catch (error) {
+        console.error('[WS] Connection failed:', error);
         set({ connectionState: 'error' });
-      };
-      
-      socket.onclose = () => {
-        console.log('[WS] Connection closed');
-        set({ socket: null, connectionState: 'disconnected' });
-        
-        const { reconnectAttempts, maxReconnectAttempts } = get();
-        if (reconnectAttempts < maxReconnectAttempts) {
-          get().scheduleReconnect();
-        }
-      };
-      
-      set({ socket });
+      }
     },
     
     disconnect: () => {
       const { socket } = get();
       if (socket) {
-        console.log('[WS] Disconnecting');
         socket.close();
         set({ socket: null, connectionState: 'disconnected' });
       }
@@ -150,7 +162,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
         const messageStr = JSON.stringify(message);
         socket.send(messageStr);
         
-        // Only log sent messages if they're interesting
         if (message.type !== 'heartbeat' && message.method !== 'memory.get_recent') {
           console.log('[WS] Sent:', message.type, message.method || '');
         }
@@ -162,13 +173,26 @@ export const useWebSocketStore = create<WebSocketStore>()(
       }
     },
     
-    subscribe: (id: string, callback: (message: WebSocketMessage) => void) => {
+    // NEW: Enhanced subscribe with message type filtering
+    subscribe: (
+      id: string, 
+      callback: (message: WebSocketMessage) => void,
+      messageTypes?: string[]
+    ) => {
       const { listeners } = get();
-      listeners.set(id, callback);
+      listeners.set(id, { callback, messageTypes });
+      
+      // Debug log for subscriptions
+      if (messageTypes) {
+        console.log(`[WS] Subscribed: ${id} → [${messageTypes.join(', ')}]`);
+      } else {
+        console.log(`[WS] Subscribed: ${id} → [all messages]`);
+      }
       
       return () => {
         const { listeners } = get();
         listeners.delete(id);
+        console.log(`[WS] Unsubscribed: ${id}`);
       };
     },
     
@@ -176,11 +200,11 @@ export const useWebSocketStore = create<WebSocketStore>()(
       set({ connectionState });
     },
     
+    // PERFORMANCE FIX: Only notify listeners that care about this message type
     handleMessage: (message: WebSocketMessage) => {
-      // Update last message
       set({ lastMessage: message });
       
-      // Smart logging - reduce noise
+      // Smart logging
       const shouldLog = !SILENT_TYPES.has(message.type) && 
                         !SILENT_TYPES.has(message.data?.type);
       
@@ -197,21 +221,34 @@ export const useWebSocketStore = create<WebSocketStore>()(
         } else if (message.type === 'error') {
           console.error('[WS] Error:', message.message);
         } else if (message.type === 'response') {
-          // Don't log responses, they're handled by ChatArea
+          // Don't log responses
         } else if (!KNOWN_MESSAGE_TYPES.has(message.type)) {
           console.warn(`[WS] Unknown message type: ${message.type}`);
         }
       }
       
-      // Notify all listeners
+      // NEW: Filtered notification - only call listeners that care
       const { listeners } = get();
-      listeners.forEach(callback => {
-        try {
-          callback(message);
-        } catch (error) {
-          console.error('[WS] Listener error:', error);
+      let notifiedCount = 0;
+      
+      listeners.forEach((subscriber, id) => {
+        const { callback, messageTypes } = subscriber;
+        
+        // If no filter specified, or message type matches filter
+        if (!messageTypes || messageTypes.includes(message.type)) {
+          try {
+            callback(message);
+            notifiedCount++;
+          } catch (error) {
+            console.error(`[WS] Listener error (${id}):`, error);
+          }
         }
       });
+      
+      // Debug: Log notification efficiency (only if interesting)
+      if (shouldLog && listeners.size > 0) {
+        console.log(`[WS] Notified ${notifiedCount}/${listeners.size} listeners for ${message.type}`);
+      }
     },
     
     processMessageQueue: () => {
