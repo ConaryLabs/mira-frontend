@@ -1,52 +1,61 @@
 // src/components/MessageList.tsx
-import React from 'react';
+// PERFORMANCE FIX: Virtualized message list with react-virtuoso
+
+import React, { useEffect, useRef } from 'react';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
+import { useChatStore } from '../stores/useChatStore';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
-import type { Message } from '../types';
 
-interface MessageListProps {
-  messages: Message[];
-  isWaitingForResponse?: boolean;
-}
+export const MessageList: React.FC = () => {
+  const messages = useChatStore(state => state.messages);
+  const isStreaming = useChatStore(state => state.isStreaming);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-export const MessageList: React.FC<MessageListProps> = ({ messages, isWaitingForResponse = false }) => {
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (virtuosoRef.current && messages.length > 0) {
+      virtuosoRef.current.scrollToIndex({
+        index: messages.length - 1,
+        behavior: 'smooth',
+      });
+    }
+  }, [messages.length]);
+
   if (messages.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-            <span className="text-2xl">🧠</span>
-          </div>
-          <h2 className="text-xl font-semibold text-slate-100 mb-2">
-            Hey there! I'm Mira
-          </h2>
-          <p className="text-slate-400 leading-relaxed">
-            I'm your AI development assistant with a personality. I can help you write code, 
-            manage projects, understand complex systems, and maybe roast your commit messages 
-            along the way.
-          </p>
-          <p className="text-sm text-slate-500 mt-3">
-            Start by telling me what you're working on, or just say hi!
-          </p>
-        </div>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   return (
-    <div className="space-y-6">
-      {messages.map((message, index) => (
-        <MessageBubble 
-          key={message.id} 
-          message={message}
-          isLast={index === messages.length - 1}
-        />
-      ))}
+    <div className="h-full relative">
+      <Virtuoso
+        ref={virtuosoRef}
+        data={messages}
+        overscan={200}
+        itemContent={(index, message) => (
+          <div className="px-4 py-3">
+            <MessageBubble 
+              message={message}
+              isLast={index === messages.length - 1}
+            />
+          </div>
+        )}
+        followOutput="auto"
+      />
       
-      {/* Show thinking indicator when waiting for response */}
-      {isWaitingForResponse && (
-        <ThinkingIndicator />
+      {isStreaming && (
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 pointer-events-none">
+          <ThinkingIndicator />
+        </div>
       )}
     </div>
   );
 };
+
+const EmptyState: React.FC = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="text-center text-slate-500 text-sm">
+      No messages yet. Start a conversation with Mira.
+    </div>
+  </div>
+);
