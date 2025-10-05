@@ -1,5 +1,5 @@
 // src/hooks/useMessageHandler.ts
-// Fixed to read content from message.data.content
+// PERFORMANCE FIX: Filtered subscription for 'response' messages only
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -16,12 +16,17 @@ export const useMessageHandler = () => {
   } = useChatStore();
 
   useEffect(() => {
-    const unsubscribe = subscribe('chat-handler', (message) => {
-      // Only handle 'response' type messages (chat responses from Claude)
-      if (message.type === 'response') {
-        handleChatResponse(message);
-      }
-    });
+    // PERFORMANCE FIX: Only subscribe to 'response' type messages
+    const unsubscribe = subscribe(
+      'chat-handler',
+      (message) => {
+        // Only handle 'response' type messages (chat responses from Claude)
+        if (message.type === 'response') {
+          handleChatResponse(message);
+        }
+      },
+      ['response'] // Filter: only receive response messages
+    );
 
     return unsubscribe;
   }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming]);

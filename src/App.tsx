@@ -1,7 +1,7 @@
 // src/App.tsx
 import React, { useEffect, useState } from 'react';
 import { Header } from './components/Header';
-import { ChatContainer } from './components/ChatContainer';
+import { ChatArea } from './components/ChatArea'; // CHANGED: ChatContainer → ChatArea
 import { ArtifactPanel } from './components/ArtifactPanel';
 import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
 import { DocumentsView } from './components/documents';
@@ -68,11 +68,11 @@ function App() {
         </div>
       </div>
       
-      {/* Main content area - removed nested flex wrapper */}
+      {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {activeTab === 'chat' && (
           <>
-            <ChatContainer />
+            <ChatArea /> {/* CHANGED: ChatContainer → ChatArea */}
             {showArtifacts && <ArtifactPanel />}
           </>
         )}

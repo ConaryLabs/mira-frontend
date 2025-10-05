@@ -1,5 +1,5 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// FIXED: Set active artifact after creation + proper artifact state management
+// PERFORMANCE FIX: Filtered subscription for data/status/error messages only
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
@@ -24,10 +24,15 @@ export const useWebSocketMessageHandler = () => {
   } = useAppState();
 
   useEffect(() => {
-    const unsubscribe = subscribe('global-message-handler', (message) => {
-      console.log('WebSocket message received:', message);
-      handleMessage(message);
-    });
+    // PERFORMANCE FIX: Only subscribe to data/status/error messages
+    const unsubscribe = subscribe(
+      'global-message-handler',
+      (message) => {
+        console.log('WebSocket message received:', message);
+        handleMessage(message);
+      },
+      ['data', 'status', 'error'] // Filter: only receive these message types
+    );
 
     return unsubscribe;
   }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
