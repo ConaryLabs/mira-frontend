@@ -1,7 +1,8 @@
 // src/stores/useChatStore.ts
-// Backend-driven chat store - no localStorage persistence
+// Chat store with localStorage persistence + backend sync
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 // Artifact type for error fixes
 export interface Artifact {
@@ -54,104 +55,116 @@ interface ChatStore {
   getArtifact: (messageId: string, artifactId: string) => Artifact | undefined;
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
-  // Initial state
-  messages: [],
-  currentSessionId: 'peter-eternal',
-  isStreaming: false,
-  streamingContent: '',
-  streamingMessageId: null,
-  
-  // Message management
-  addMessage: (message) => {
-    set(state => ({
-      messages: [...state.messages, message]
-    }));
-  },
-  
-  updateMessage: (id, updates) => {
-    set(state => ({
-      messages: state.messages.map(msg => 
-        msg.id === id ? { ...msg, ...updates } : msg
-      )
-    }));
-  },
-  
-  setMessages: (messages) => {
-    set({ messages });
-  },
-  
-  clearMessages: () => {
-    set({ messages: [] });
-  },
-  
-  setSessionId: (id) => {
-    set({ currentSessionId: id });
-  },
-  
-  // Streaming
-  startStreaming: () => {
-    const messageId = `streaming-${Date.now()}`;
-    set({
-      isStreaming: true,
-      streamingContent: '',
-      streamingMessageId: messageId,
-    });
-    
-    // Add placeholder message
-    get().addMessage({
-      id: messageId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-    });
-  },
-  
-  appendStreamContent: (content) => {
-    set(state => ({
-      streamingContent: state.streamingContent + content,
-    }));
-    
-    const { streamingMessageId, streamingContent } = get();
-    if (streamingMessageId) {
-      get().updateMessage(streamingMessageId, {
-        content: streamingContent + content,
-      });
-    }
-  },
-  
-  endStreaming: () => {
-    set({
+export const useChatStore = create<ChatStore>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      messages: [],
+      currentSessionId: 'peter-eternal',
       isStreaming: false,
       streamingContent: '',
       streamingMessageId: null,
-    });
-  },
-  
-  // Artifact operations
-  markArtifactApplied: (messageId, artifactId) => {
-    set(state => ({
-      messages: state.messages.map(msg => {
-        if (msg.id === messageId && msg.artifacts) {
-          return {
-            ...msg,
-            artifacts: msg.artifacts.map(artifact =>
-              artifact.id === artifactId
-                ? { ...artifact, applied: true } as any
-                : artifact
-            )
-          };
+      
+      // Message management
+      addMessage: (message) => {
+        set(state => ({
+          messages: [...state.messages, message]
+        }));
+      },
+      
+      updateMessage: (id, updates) => {
+        set(state => ({
+          messages: state.messages.map(msg => 
+            msg.id === id ? { ...msg, ...updates } : msg
+          )
+        }));
+      },
+      
+      setMessages: (messages) => {
+        set({ messages });
+      },
+      
+      clearMessages: () => {
+        set({ messages: [] });
+      },
+      
+      setSessionId: (id) => {
+        set({ currentSessionId: id });
+      },
+      
+      // Streaming
+      startStreaming: () => {
+        const messageId = `streaming-${Date.now()}`;
+        set({
+          isStreaming: true,
+          streamingContent: '',
+          streamingMessageId: messageId,
+        });
+        
+        // Add placeholder message
+        get().addMessage({
+          id: messageId,
+          role: 'assistant',
+          content: '',
+          timestamp: Date.now(),
+        });
+      },
+      
+      appendStreamContent: (content) => {
+        set(state => ({
+          streamingContent: state.streamingContent + content,
+        }));
+        
+        const { streamingMessageId, streamingContent } = get();
+        if (streamingMessageId) {
+          get().updateMessage(streamingMessageId, {
+            content: streamingContent + content,
+          });
         }
-        return msg;
-      })
-    }));
-  },
-  
-  getArtifact: (messageId, artifactId) => {
-    const message = get().messages.find(m => m.id === messageId);
-    return message?.artifacts?.find(a => a.id === artifactId);
-  },
-}));
+      },
+      
+      endStreaming: () => {
+        set({
+          isStreaming: false,
+          streamingContent: '',
+          streamingMessageId: null,
+        });
+      },
+      
+      // Artifact operations
+      markArtifactApplied: (messageId, artifactId) => {
+        set(state => ({
+          messages: state.messages.map(msg => {
+            if (msg.id === messageId && msg.artifacts) {
+              return {
+                ...msg,
+                artifacts: msg.artifacts.map(artifact =>
+                  artifact.id === artifactId
+                    ? { ...artifact, applied: true } as any
+                    : artifact
+                )
+              };
+            }
+            return msg;
+          })
+        }));
+      },
+      
+      getArtifact: (messageId, artifactId) => {
+        const message = get().messages.find(m => m.id === messageId);
+        return message?.artifacts?.find(a => a.id === artifactId);
+      },
+    }),
+    {
+      name: 'mira-chat-storage', // localStorage key
+      partialize: (state) => ({
+        messages: state.messages,
+        currentSessionId: state.currentSessionId,
+        // Don't persist streaming state
+      }),
+    }
+  )
+);
 
 // Helper hook for current session messages
 export function useCurrentSession() {

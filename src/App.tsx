@@ -9,6 +9,7 @@ import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import { useMessageHandler } from './hooks/useMessageHandler';
+import { useChatPersistence } from './hooks/useChatPersistence';
 import { MessageSquare, FileText } from 'lucide-react';
 import './App.css';
 
@@ -19,6 +20,7 @@ function App() {
   const { showArtifacts, currentProject } = useAppState();
   const connect = useWebSocketStore(state => state.connect);
   const disconnect = useWebSocketStore(state => state.disconnect);
+  const connectionState = useWebSocketStore(state => state.connectionState);
   
   // Initialize WebSocket connection
   useEffect(() => {
@@ -33,6 +35,7 @@ function App() {
   // Handle all WebSocket messages
   useWebSocketMessageHandler(); // Handles data messages (projects, files, git)
   useMessageHandler();           // Handles response messages (chat)
+  useChatPersistence(connectionState); // Handles chat history loading from backend + localStorage
   
   // Quick file open handler
   const quickFileOpen = useQuickFileOpen();
