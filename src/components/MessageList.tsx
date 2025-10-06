@@ -1,10 +1,8 @@
 // src/components/MessageList.tsx
-// PERFORMANCE FIX: Virtualized message list with react-virtuoso + proper auto-scroll
-
 import React, { useEffect, useRef } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useChatStore } from '../stores/useChatStore';
-import { MessageBubble } from './MessageBubble';
+import { ChatMessage } from './ChatMessage';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
 export const MessageList: React.FC = () => {
@@ -13,14 +11,13 @@ export const MessageList: React.FC = () => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const initialScrollDone = useRef(false);
 
-  // FIXED: Scroll to bottom on initial load (after messages populate)
+  // Scroll to bottom on initial load (after messages populate)
   useEffect(() => {
     if (virtuosoRef.current && messages.length > 0 && !initialScrollDone.current) {
-      // Use setTimeout to ensure virtuoso is fully rendered
       setTimeout(() => {
         virtuosoRef.current?.scrollToIndex({
           index: messages.length - 1,
-          behavior: 'auto', // Instant scroll on initial load
+          behavior: 'auto',
         });
         initialScrollDone.current = true;
       }, 100);
@@ -32,7 +29,7 @@ export const MessageList: React.FC = () => {
     if (virtuosoRef.current && messages.length > 0 && initialScrollDone.current) {
       virtuosoRef.current.scrollToIndex({
         index: messages.length - 1,
-        behavior: 'smooth', // Smooth scroll for new messages
+        behavior: 'smooth',
       });
     }
   }, [messages.length]);
@@ -48,15 +45,12 @@ export const MessageList: React.FC = () => {
         data={messages}
         overscan={200}
         itemContent={(index, message) => (
-          <div className="px-4 py-3">
-            <MessageBubble 
-              message={message}
-              isLast={index === messages.length - 1}
-            />
+          <div className="px-4 py-2">
+            <ChatMessage message={message} />
           </div>
         )}
         followOutput="auto"
-        initialTopMostItemIndex={messages.length - 1} // Start at bottom
+        initialTopMostItemIndex={messages.length - 1}
       />
       
       {isStreaming && (

@@ -71,14 +71,29 @@ function App() {
         </div>
       </div>
       
-      {/* Main content area - FIXED: Proper flex layout for chat-first */}
+      {/* Main content area - Centered chat that slides into 50/50 with artifacts */}
       <div className="flex-1 flex overflow-hidden">
         {activeTab === 'chat' && (
           <>
-            <div className="flex-1 flex overflow-hidden">
-              <ChatArea />
+            {/* Chat Area - Centered when no artifacts, 50% when artifacts shown */}
+            <div className={`
+              flex overflow-hidden transition-all duration-300
+              ${showArtifacts ? 'w-1/2' : 'flex-1'}
+            `}>
+              <div className={`
+                flex flex-col w-full
+                ${!showArtifacts ? 'max-w-4xl mx-auto' : ''}
+              `}>
+                <ChatArea />
+              </div>
             </div>
-            {showArtifacts && <ArtifactPanel />}
+            
+            {/* Artifact Panel - Slides in from right */}
+            {showArtifacts && (
+              <div className="w-1/2 border-l border-slate-700">
+                <ArtifactPanel />
+              </div>
+            )}
           </>
         )}
         
