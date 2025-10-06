@@ -20,6 +20,14 @@ export const useChatPersistence = (connectionState: string) => {
 
   // Convert backend memory entries to frontend messages
   const convertMemoryToMessages = useCallback((memories: any[]): ChatMessage[] => {
+    // DEBUG: Check what roles we're getting from backend
+    const roleCounts = memories.reduce((acc, m) => {
+      acc[m.role] = (acc[m.role] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log('[ChatPersistence] Role breakdown from backend:', roleCounts);
+    console.log('[ChatPersistence] First 3 memories:', memories.slice(0, 3));
+    
     if (!Array.isArray(memories)) {
       console.warn('Expected array of memories, got:', typeof memories, memories);
       return [];
@@ -76,7 +84,7 @@ export const useChatPersistence = (connectionState: string) => {
         );
       });
 
-    console.log(`Converted ${memories.length} memories to ${sortedMessages.length} messages`);
+    console.log(`[ChatPersistence] Converted ${memories.length} memories to ${sortedMessages.length} messages`);
     return sortedMessages;
   }, []);
 
@@ -150,18 +158,7 @@ export const useChatPersistence = (connectionState: string) => {
     }
   }, [connectionState, getSessionId, send]);
 
-  // Subscribe to memory data messages
-  useEffect(() => {
-    const unsubscribe = subscribe('chat-persistence', (message) => {
-      if (message.type === 'data' && message.data) {
-        handleMemoryData(message.data);
-      }
-    });
-    
-    return unsubscribe;
-  }, [subscribe, handleMemoryData]);
-
-  // Subscribe to memory data messages
+  // Subscribe to memory data messages (FIXED: removed duplicate)
   useEffect(() => {
     const unsubscribe = subscribe('chat-persistence', (message) => {
       if (message.type === 'data' && message.data) {

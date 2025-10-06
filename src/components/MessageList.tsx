@@ -1,5 +1,5 @@
 // src/components/MessageList.tsx
-// PERFORMANCE FIX: Virtualized message list with react-virtuoso
+// PERFORMANCE FIX: Virtualized message list with react-virtuoso + proper auto-scroll
 
 import React, { useEffect, useRef } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
@@ -11,13 +11,28 @@ export const MessageList: React.FC = () => {
   const messages = useChatStore(state => state.messages);
   const isStreaming = useChatStore(state => state.isStreaming);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const initialScrollDone = useRef(false);
 
-  // Auto-scroll to bottom when new messages arrive
+  // FIXED: Scroll to bottom on initial load (after messages populate)
   useEffect(() => {
-    if (virtuosoRef.current && messages.length > 0) {
+    if (virtuosoRef.current && messages.length > 0 && !initialScrollDone.current) {
+      // Use setTimeout to ensure virtuoso is fully rendered
+      setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: messages.length - 1,
+          behavior: 'auto', // Instant scroll on initial load
+        });
+        initialScrollDone.current = true;
+      }, 100);
+    }
+  }, [messages.length]);
+
+  // Auto-scroll to bottom when new messages arrive (after initial load)
+  useEffect(() => {
+    if (virtuosoRef.current && messages.length > 0 && initialScrollDone.current) {
       virtuosoRef.current.scrollToIndex({
         index: messages.length - 1,
-        behavior: 'smooth',
+        behavior: 'smooth', // Smooth scroll for new messages
       });
     }
   }, [messages.length]);
@@ -41,6 +56,7 @@ export const MessageList: React.FC = () => {
           </div>
         )}
         followOutput="auto"
+        initialTopMostItemIndex={messages.length - 1} // Start at bottom
       />
       
       {isStreaming && (
