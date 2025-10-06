@@ -136,88 +136,56 @@ export const useWebSocketMessageHandler = () => {
             language: detectLanguage(data.path || ''),
             linkedFile: data.path,
             created: Date.now(),
-            modified: Date.now()
+            modified: Date.now(),
           };
           
-          console.log('Creating artifact:', newArtifact.title, newArtifact.type);
-          
-          // CRITICAL FIX: addArtifact already sets it active and shows panel
-          // but we call it explicitly anyway to ensure context sharing works
+          console.log('Creating artifact from file:', newArtifact.title);
           addArtifact(newArtifact);
-          
-          console.log('Artifact created and activated:', newArtifact.id);
-        } else {
-          console.warn('Received file_content without content');
+          setShowFileExplorer(true);
         }
         break;
 
-      case 'project_list':  // FIXED: Changed from 'projects_list' to match backend
-        console.log('Projects list received:', data.projects);
-        if (data.projects && Array.isArray(data.projects)) {
-          const formattedProjects: Project[] = data.projects.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            description: p.description,
-            tags: p.tags || [],
-            lastAccessed: p.last_accessed || Date.now(),
-            created: p.created || Date.now(),
-            hasRepository: Boolean(p.has_repository),
-            repositoryUrl: p.repository_url,
-          }));
-          setProjects(formattedProjects);
+      case 'projects':
+        console.log('Projects data received:', data.projects?.length || 0, 'projects');
+        if (data.projects) {
+          setProjects(data.projects);
+        }
+        break;
+
+      case 'git_status':
+        console.log('Git status update:', data.status);
+        if (data.status === 'synced' || data.status === 'modified') {
+          updateGitStatus(data.status);
           
-          if (data.active_project_id) {
-            const activeProject = formattedProjects.find(p => p.id === data.active_project_id);
-            if (activeProject) {
-              setCurrentProject(activeProject);
-            }
+          if (data.modified_files) {
+            clearModifiedFiles();
+            data.modified_files.forEach((file: string) => addModifiedFile(file));
           }
         }
         break;
 
       case 'file_tree':
-      case 'tree':
-        console.log('File tree received - handled by QuickFileOpen');
-        // QuickFileOpen component handles this
+        console.log('File tree received:', data.tree?.length || 0, 'items');
         break;
 
-      case 'git_status':
-        console.log('Git status received:', data.status);
-        if (data.status) {
-          updateGitStatus(data.status);
-          
-          if (data.status.modified && Array.isArray(data.status.modified)) {
-            clearModifiedFiles();
-            data.status.modified.forEach((file: string) => {
-              addModifiedFile(file);
-            });
-          }
-        }
+      // FIXED: Document-related messages are handled by DocumentList/DocumentSearch components
+      case 'document_list':
+      case 'document_search_results':
+      case 'document_content':
+        // These are handled by document components via their own subscriptions
+        console.log(`Document message (${data.type}) - handled by document components`);
         break;
 
       case 'project_updated':
-        console.log('Project updated:', data.project);
+        console.log('Project update notification:', data.project_id);
         if (data.project) {
-          const updatedProject: Project = {
-            id: data.project.id,
-            name: data.project.name,
-            description: data.project.description,
-            tags: data.project.tags || [],
-            lastAccessed: Date.now(),
-            created: data.project.created || Date.now(),
-            hasRepository: Boolean(data.project.has_repository),
-            repositoryUrl: data.project.repository_url,
-          };
-          
-          const { currentProject } = useAppState.getState();
-          if (currentProject && currentProject.id === updatedProject.id) {
-            setCurrentProject(updatedProject);
-          }
-          
-          const { projects } = useAppState.getState();
-          const updatedProjects = projects.map(p => 
-            p.id === updatedProject.id ? updatedProject : p
-          );
+          // Get current projects from store
+          const currentProjects = useAppState.getState().projects;
+          const updatedProjects = currentProjects.length 
+            ? currentProjects.map((p: Project) =>
+                p.id === data.project.id ? { ...p, ...data.project } : p
+              )
+            : [data.project];
           setProjects(updatedProjects);
         }
         break;

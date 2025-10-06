@@ -130,6 +130,13 @@ export const useChatPersistence = (connectionState: string) => {
       return;
     }
     
+    // FIXED: Ignore document-related messages (handled by document components)
+    const documentTypes = ['document_list', 'document_search_results', 'document_content'];
+    if (data.type && documentTypes.includes(data.type)) {
+      console.log(`[ChatPersistence] Ignoring document message: ${data.type}`);
+      return;
+    }
+    
     console.log('[ChatPersistence] Unhandled memory data:', data);
   }, [convertMemoryToMessages, setMessages]);
 
