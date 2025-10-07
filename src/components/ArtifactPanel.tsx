@@ -14,7 +14,8 @@ export const ArtifactPanel: React.FC = () => {
     closeArtifacts,
     saveArtifactToFile,
     copyArtifact,
-    updateArtifact
+    updateArtifact,
+    removeArtifact
   } = useArtifacts();
   
   const handleContentChange = useCallback((newContent: string | undefined) => {
@@ -66,20 +67,34 @@ export const ArtifactPanel: React.FC = () => {
       <div className="border-b border-gray-700">
         <div className="flex items-center overflow-x-auto">
           {artifacts.map((artifact) => (
-            <button
+            <div
               key={artifact.id}
-              onClick={() => setActiveArtifact(artifact.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm border-b-2 whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3 py-2 text-sm border-b-2 whitespace-nowrap transition-colors ${
                 artifact.id === activeArtifact.id
                   ? 'border-blue-500 text-blue-400 bg-blue-900/20'
                   : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800'
               }`}
             >
-              {getIcon(artifact.language)}
-              <span className="max-w-[120px] truncate">
-                {getDisplayName(artifact.path)}
-              </span>
-            </button>
+              <button
+                onClick={() => setActiveArtifact(artifact.id)}
+                className="flex items-center gap-2"
+              >
+                {getIcon(artifact.language)}
+                <span className="max-w-[120px] truncate">
+                  {getDisplayName(artifact.path)}
+                </span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeArtifact(artifact.id);
+                }}
+                className="ml-1 p-0.5 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                title="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
           ))}
         </div>
         
