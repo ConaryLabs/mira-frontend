@@ -152,6 +152,25 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
 
+      // NEW: Handle project_list responses
+      case 'project_list':
+        console.log('Processing project list:', data.projects?.length || 0, 'projects');
+        if (data.projects && Array.isArray(data.projects)) {
+          setProjects(data.projects);
+          console.log('Projects updated in state');
+        }
+        break;
+
+      // NEW: Handle project_created responses
+      case 'project_created':
+        console.log('Project created:', data.project?.name);
+        if (data.project) {
+          // Add the new project to the list
+          const currentProjects = useAppState.getState().projects;
+          setProjects([...currentProjects, data.project]);
+        }
+        break;
+
       case 'git_status':
         console.log('Git status update:', data.status);
         if (data.status === 'synced' || data.status === 'modified') {

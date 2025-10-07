@@ -9,6 +9,22 @@ export const MessageList: React.FC = () => {
   const messages = useChatStore(state => state.messages);
   const isStreaming = useChatStore(state => state.isStreaming);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const hasScrolledToBottom = useRef(false);
+
+  // Initial scroll to bottom after messages load
+  useEffect(() => {
+    if (messages.length > 0 && !hasScrolledToBottom.current && virtuosoRef.current) {
+      // Small delay to let virtuoso render
+      setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: messages.length - 1,
+          behavior: 'auto',
+          align: 'end'
+        });
+        hasScrolledToBottom.current = true;
+      }, 100);
+    }
+  }, [messages.length]);
 
   if (messages.length === 0) {
     return <EmptyState />;

@@ -426,11 +426,14 @@ export const ProjectDropdown: React.FC = () => {
           <div className="border-t border-slate-700 p-2 space-y-2">
             {/* New project section */}
             {showNewProject ? (
-              <div className="space-y-2">
+              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="text"
                   value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onChange={(e) => {
+                    console.log('Project name input:', e.target.value);
+                    setNewProjectName(e.target.value);
+                  }}
                   onKeyDown={handleKeyPress}
                   placeholder="Project name"
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-blue-500"
@@ -438,7 +441,11 @@ export const ProjectDropdown: React.FC = () => {
                 />
                 <div className="flex gap-2">
                   <button
-                    onClick={handleCreateProject}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log('Create button clicked!', { name: newProjectName, isCreating, trimmed: newProjectName.trim() });
+                      handleCreateProject();
+                    }}
                     disabled={!newProjectName.trim() || isCreating}
                     className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium flex items-center justify-center gap-2"
                   >
@@ -452,7 +459,9 @@ export const ProjectDropdown: React.FC = () => {
                     )}
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log('Cancel clicked');
                       setShowNewProject(false);
                       setNewProjectName('');
                     }}
@@ -464,7 +473,11 @@ export const ProjectDropdown: React.FC = () => {
               </div>
             ) : (
               <button
-                onClick={() => setShowNewProject(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('Show new project clicked');
+                  setShowNewProject(true);
+                }}
                 className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-sm"
               >
                 <Plus size={16} />
@@ -529,8 +542,19 @@ export const ProjectDropdown: React.FC = () => {
 
       {/* Delete Confirmation Dialog */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={() => setConfirmDelete(null)}>
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" 
+          onClick={() => setConfirmDelete(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setConfirmDelete(null);
+            }
+          }}
+        >
+          <div 
+            className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md mx-4" 
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold text-white mb-2">Delete Project?</h3>
             <p className="text-slate-300 mb-4">
               Are you sure you want to delete <span className="font-medium text-white">"{confirmDelete.name}"</span>?
