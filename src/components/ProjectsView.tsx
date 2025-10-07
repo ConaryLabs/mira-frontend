@@ -54,7 +54,7 @@ export const ProjectsView: React.FC = () => {
       await send({
         type: 'project_command',
         method: 'project.delete',
-        params: { project_id: projectId }
+        params: { id: projectId }  // FIXED: backend expects 'id' not 'project_id'
       });
       setConfirmDelete(null);
     } catch (error) {
