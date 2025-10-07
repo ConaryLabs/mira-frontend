@@ -1,4 +1,6 @@
-// src/hooks/useAppState.ts
+// src/stores/useAppState.ts
+// PHASE 1.3: Added appliedFiles tracking for artifact workflow
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Project, Artifact, Message } from '../types';
@@ -16,14 +18,17 @@ interface AppState {
   // Git State
   modifiedFiles: string[];
   currentBranch: string;
-  gitStatus: any; // TODO: proper git status type
+  gitStatus: any;
   
   // Artifacts
   artifacts: Artifact[];
   activeArtifactId: string | null;
+  // ===== PHASE 1.3: NEW =====
+  appliedFiles: Set<string>; // Track which artifacts have been applied to disk
+  // ===== END PHASE 1.3 =====
   
   // Code Intelligence
-  codeAnalysis: any; // TODO: proper code analysis types
+  codeAnalysis: any;
   complexityHotspots: any[];
   
   // Memory & Context
@@ -39,7 +44,6 @@ interface AppState {
   setShowFileExplorer: (show: boolean) => void;
   setCurrentProject: (project: Project | null) => void;
   addProject: (project: Project) => void;
-  // 🚀 ADDED: Missing setProjects method
   setProjects: (projects: Project[] | ((prev: Project[]) => Project[])) => void;
   updateGitStatus: (status: any) => void;
   addModifiedFile: (file: string) => void;
@@ -49,6 +53,11 @@ interface AppState {
   setActiveArtifact: (id: string | null) => void;
   updateArtifact: (id: string, updates: Partial<Artifact>) => void;
   removeArtifact: (id: string) => void;
+  // ===== PHASE 1.3: NEW =====
+  markArtifactApplied: (id: string) => void;
+  markArtifactUnapplied: (id: string) => void;
+  isArtifactApplied: (id: string) => boolean;
+  // ===== END PHASE 1.3 =====
   setPersona: (persona: 'default' | 'professional' | 'chaos') => void;
   setMood: (mood: 'playful' | 'focused' | 'frustrated' | null) => void;
 }
@@ -67,6 +76,9 @@ export const useAppState = create<AppState>()(
       gitStatus: null,
       artifacts: [],
       activeArtifactId: null,
+      // ===== PHASE 1.3: NEW =====
+      appliedFiles: new Set<string>(),
+      // ===== END PHASE 1.3 =====
       codeAnalysis: null,
       complexityHotspots: [],
       relevantMemories: [],
@@ -90,7 +102,6 @@ export const useAppState = create<AppState>()(
         projects: [...state.projects, project]
       })),
       
-      // 🚀 ADDED: Missing setProjects method that accepts both direct arrays and functions
       setProjects: (projectsOrUpdater) => {
         if (typeof projectsOrUpdater === 'function') {
           set((state) => ({ projects: projectsOrUpdater(state.projects) }));
@@ -138,6 +149,22 @@ export const useAppState = create<AppState>()(
         };
       }),
       
+      // ===== PHASE 1.3: NEW ACTIONS =====
+      markArtifactApplied: (id) => set((state) => ({
+        appliedFiles: new Set(state.appliedFiles).add(id)
+      })),
+      
+      markArtifactUnapplied: (id) => set((state) => {
+        const newApplied = new Set(state.appliedFiles);
+        newApplied.delete(id);
+        return { appliedFiles: newApplied };
+      }),
+      
+      isArtifactApplied: (id) => {
+        return get().appliedFiles.has(id);
+      },
+      // ===== END PHASE 1.3 =====
+      
       setPersona: (persona) => set({ currentPersona: persona }),
       setMood: (mood) => set({ mood }),
     }),
@@ -165,10 +192,14 @@ export const useArtifactState = () => {
     artifacts, 
     activeArtifactId, 
     showArtifacts,
+    appliedFiles, // Include appliedFiles
     addArtifact,
     setActiveArtifact,
     updateArtifact,
-    removeArtifact
+    removeArtifact,
+    markArtifactApplied,
+    markArtifactUnapplied,
+    isArtifactApplied,
   } = useAppState();
   
   const activeArtifact = artifacts.find(a => a.id === activeArtifactId) || null;
@@ -177,10 +208,14 @@ export const useArtifactState = () => {
     artifacts,
     activeArtifact,
     showArtifacts,
+    appliedFiles,
     addArtifact,
     setActiveArtifact,
     updateArtifact,
-    removeArtifact
+    removeArtifact,
+    markArtifactApplied,
+    markArtifactUnapplied,
+    isArtifactApplied,
   };
 };
 
