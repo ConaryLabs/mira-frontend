@@ -1,5 +1,5 @@
 // src/components/ChatInput.tsx
-// FIXED: Chat works without project - project just adds context
+// FIXED: Auto-resize without scroll-linked positioning
 
 import React, { useRef, KeyboardEvent, useCallback, useEffect } from 'react';
 import { Send } from 'lucide-react';
@@ -45,21 +45,26 @@ export const ChatInput: React.FC = () => {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputContent(e.target.value);
     
-    // Auto-resize
+    // Auto-resize with proper async handling to avoid scroll-linked warnings
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      const textarea = textareaRef.current;
+      // Reset height to get accurate scrollHeight
+      textarea.style.height = 'auto';
+      // Use requestAnimationFrame to decouple from scroll events
+      requestAnimationFrame(() => {
+        const newHeight = Math.min(textarea.scrollHeight, 200);
+        textarea.style.height = `${newHeight}px`;
+      });
     }
   }, [setInputContent]);
 
-  // Auto-focus when connected (removed project check)
+  // Auto-focus when connected
   useEffect(() => {
     if (connectionState === 'connected' && textareaRef.current) {
       textareaRef.current.focus();
     }
   }, [connectionState]);
 
-  // FIXED: Only disabled when disconnected or waiting, NOT when no project
   const isDisabled = connectionState !== 'connected' || isWaiting;
 
   return (
@@ -78,7 +83,7 @@ export const ChatInput: React.FC = () => {
               : "Chat with Mira... (Enter to send, Shift+Enter for new line)"
           }
           disabled={isDisabled}
-          className="w-full bg-slate-800 text-slate-100 placeholder-slate-400 rounded-lg px-4 py-2 resize-none border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed min-h-[42px] max-h-[200px]"
+          className="w-full bg-slate-800 text-slate-100 placeholder-slate-400 rounded-lg px-4 py-2 resize-none border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed min-h-[42px] max-h-[200px] overflow-y-auto"
           rows={1}
         />
         {currentProject && (

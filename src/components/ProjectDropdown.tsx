@@ -16,6 +16,8 @@ export const ProjectDropdown: React.FC = () => {
   const [isAttaching, setIsAttaching] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
+  const deleteInProgressRef = useRef(false); // Prevent multiple delete attempts
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { currentProject, projects, setCurrentProject, setProjects } = useAppState();
@@ -79,11 +81,12 @@ export const ProjectDropdown: React.FC = () => {
     };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      // Use 'click' instead of 'mousedown' to avoid interfering with button clicks
+      document.addEventListener('click', handleClickOutside);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside);
     };
   }, [isOpen, showNewProject, showAttachRepo]);
 
@@ -107,11 +110,24 @@ export const ProjectDropdown: React.FC = () => {
   };
 
   const handleDeleteProject = async (project: Project, event: React.MouseEvent) => {
-    event.stopPropagation();
-
-    if (!confirm(`Delete project "${project.name}"?\n\nThis will permanently delete the project and all its data. This cannot be undone.`)) {
+    // stopPropagation is already called in the onClick handler
+    
+    // Prevent multiple rapid clicks
+    if (deleteInProgressRef.current || isDeletingProject) {
+      console.log('Delete already in progress, ignoring');
       return;
     }
+
+    console.log('DELETE BUTTON CLICKED', { project: project.name, isDeletingProject, connectionState });
+
+    // Show confirmation dialog
+    setConfirmDelete(project);
+    setProjectMenuOpen(null); // Close the menu
+  };
+
+  const executeDelete = async (project: Project) => {
+    deleteInProgressRef.current = true;
+    setConfirmDelete(null); // Close confirmation dialog
 
     setIsDeletingProject(project.id);
     console.log('Deleting project:', project.name);
@@ -153,45 +169,45 @@ export const ProjectDropdown: React.FC = () => {
     } finally {
       setIsDeletingProject(null);
       setProjectMenuOpen(null);
+      deleteInProgressRef.current = false; // Reset the ref
     }
   };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
-    console.log('Creating project:', newProjectName);
     setIsCreating(true);
-    
+    console.log('Creating project:', newProjectName);
+
     try {
       await send({
         type: 'project_command',
         method: 'project.create',
         params: {
-          name: newProjectName.trim(),
-          description: '',
+          name: newProjectName,
+          description: null,
           tags: []
         }
       });
-      
+
       console.log('Project created successfully');
       
-      // Refresh project list
-      setTimeout(async () => {
-        try {
-          await send({
-            type: 'project_command',
-            method: 'project.list',
-            params: {}
-          });
-        } catch (error) {
-          console.error('Failed to refresh project list:', error);
-        }
-      }, 100);
+      // Wait a bit for backend to process
+      await new Promise(resolve => setTimeout(resolve, 500));
       
+      // Refresh project list
+      await send({
+        type: 'project_command',
+        method: 'project.list',
+        params: {}
+      });
+
       setNewProjectName('');
       setShowNewProject(false);
+      setIsOpen(false);
     } catch (error) {
       console.error('Failed to create project:', error);
+      alert('Failed to create project. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -200,42 +216,27 @@ export const ProjectDropdown: React.FC = () => {
   const handleAttachRepository = async () => {
     if (!repoUrl.trim() || !currentProject) return;
 
-    console.log('Starting repository import process for:', repoUrl);
-    console.log('Current project:', currentProject.name, '(ID:', currentProject.id, ')');
     setIsAttaching(true);
+    console.log('Attaching repository:', repoUrl);
 
     try {
-      // Step 1: Attach the repository (creates attachment record in database)
-      console.log('Step 1: Creating repository attachment...');
+      // Step 1: Create git attachment
+      console.log('Step 1: Creating git attachment...');
       await send({
         type: 'git_command',
         method: 'git.attach',
         params: {
           project_id: currentProject.id,
-          repo_url: repoUrl.trim()
+          git_url: repoUrl
         }
       });
-      console.log('Repository attachment created successfully');
+      console.log('Git attachment created successfully');
 
-      // Wait for database transaction to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Step 2: Clone the repository to local filesystem
-      console.log('Step 2: Cloning repository...');
-      await send({
-        type: 'git_command',
-        method: 'git.clone',
-        params: {
-          project_id: currentProject.id
-        }
-      });
-      console.log('Repository cloned successfully');
-
-      // Wait for cloning to complete
+      // Wait for backend to process
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Step 3: Import and analyze the codebase
-      console.log('Step 3: Importing and analyzing codebase...');
+      // Step 2: Import and analyze the codebase
+      console.log('Step 2: Importing and analyzing codebase...');
       await send({
         type: 'git_command',
         method: 'git.import',
@@ -343,10 +344,15 @@ export const ProjectDropdown: React.FC = () => {
 
                 {/* Current project menu */}
                 {projectMenuOpen === currentProject.id && (
-                  <div className="absolute right-4 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10">
+                  <div 
+                    className="absolute right-4 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10"
+                  >
                     <button
-                      onClick={(e) => handleDeleteProject(currentProject, e)}
-                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProject(currentProject, e);
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={isDeletingProject === currentProject.id}
                     >
                       <Trash2 size={14} />
@@ -396,10 +402,15 @@ export const ProjectDropdown: React.FC = () => {
 
                 {/* Project dropdown menu */}
                 {projectMenuOpen === project.id && (
-                  <div className="absolute right-0 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10">
+                  <div 
+                    className="absolute right-0 top-full mt-1 w-32 bg-slate-900 border border-slate-600 rounded-md shadow-lg z-10"
+                  >
                     <button
-                      onClick={(e) => handleDeleteProject(project, e)}
-                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProject(project, e);
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-800 rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={isDeletingProject === project.id}
                     >
                       <Trash2 size={14} />
@@ -512,6 +523,42 @@ export const ProjectDropdown: React.FC = () => {
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={() => setConfirmDelete(null)}>
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-white mb-2">Delete Project?</h3>
+            <p className="text-slate-300 mb-4">
+              Are you sure you want to delete <span className="font-medium text-white">"{confirmDelete.name}"</span>?
+              <br /><br />
+              This will permanently delete the project and all its data. This cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => executeDelete(confirmDelete)}
+                disabled={isDeletingProject === confirmDelete.id}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium flex items-center gap-2"
+              >
+                {isDeletingProject === confirmDelete.id ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Project'
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
