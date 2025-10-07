@@ -1,23 +1,22 @@
 // src/App.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Header } from './components/Header';
 import { ChatArea } from './components/ChatArea';
 import { ArtifactPanel } from './components/ArtifactPanel';
 import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
-import { DocumentsView } from './components/documents';
+import { ProjectsView } from './components/ProjectsView';
 import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
+import { useUIStore } from './stores/useUIStore';
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import { useMessageHandler } from './hooks/useMessageHandler';
 import { useChatPersistence } from './hooks/useChatPersistence';
-import { MessageSquare, FileText } from 'lucide-react';
+import { MessageSquare, Folder } from 'lucide-react';
 import './App.css';
 
-type Tab = 'chat' | 'documents';
-
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('chat');
-  const { showArtifacts, currentProject } = useAppState();
+  const { showArtifacts } = useAppState();
+  const { activeTab, setActiveTab } = useUIStore();
   const connect = useWebSocketStore(state => state.connect);
   const disconnect = useWebSocketStore(state => state.disconnect);
   const connectionState = useWebSocketStore(state => state.connectionState);
@@ -40,9 +39,9 @@ function App() {
   // Quick file open handler
   const quickFileOpen = useQuickFileOpen();
   
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'chat', label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
+  const tabs = [
+    { id: 'chat' as const, label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'projects' as const, label: 'Projects', icon: <Folder className="w-4 h-4" /> },
   ];
   
   return (
@@ -71,7 +70,7 @@ function App() {
         </div>
       </div>
       
-      {/* Main content area - Centered chat that slides into 50/50 with artifacts */}
+      {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {activeTab === 'chat' && (
           <>
@@ -97,19 +96,7 @@ function App() {
           </>
         )}
         
-        {activeTab === 'documents' && currentProject && (
-          <DocumentsView projectId={currentProject.id} />
-        )}
-        
-        {activeTab === 'documents' && !currentProject && (
-          <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
-            <div className="text-center">
-              <FileText className="w-16 h-16 mx-auto mb-4 text-gray-700" />
-              <p className="text-lg mb-2">No Project Selected</p>
-              <p className="text-sm">Select a project to upload and search documents</p>
-            </div>
-          </div>
-        )}
+        {activeTab === 'projects' && <ProjectsView />}
       </div>
       
       <QuickFileOpen

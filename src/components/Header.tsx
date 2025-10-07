@@ -1,11 +1,11 @@
 // src/components/Header.tsx
 import React from 'react';
-import { Play, Command } from 'lucide-react';
-import { ProjectDropdown } from './ProjectDropdown';
+import { Play, Command, Folder, Settings } from 'lucide-react';
 import ArtifactToggle from './ArtifactToggle';
 import { CommitPushButton } from './CommitPushButton';
 import { GitSyncButton } from './GitSyncButton';
 import { useAppState, useArtifactState } from '../stores/useAppState';
+import { useUIStore } from '../stores/useUIStore';
 
 interface HeaderProps {
   onQuickFileOpen: () => void;
@@ -19,12 +19,23 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
   } = useAppState();
   
   const { artifacts } = useArtifactState();
-
+  const { setActiveTab } = useUIStore();
+  
   return (
     <header className="h-14 border-b border-gray-700 px-4 flex items-center bg-gray-900">
-      {/* Left: Project selector */}
+      {/* Left: Project selector button */}
       <div className="flex items-center gap-4">
-        <ProjectDropdown />
+        <button
+          onClick={() => setActiveTab('projects')}
+          className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors"
+          title="Open Projects"
+        >
+          <Folder size={16} className="text-slate-400" />
+          <span className="text-sm text-slate-200">
+            {currentProject?.name || 'No Project'}
+          </span>
+          <Settings size={14} className="text-slate-500" />
+        </button>
         
         {/* Quick File Open (Cmd+P) - only show if project with repo */}
         {currentProject?.hasRepository && (
@@ -64,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
               <Play size={16} />
             </button>
             
-            {/* Git sync button (pull/push) - NEW! */}
+            {/* Git sync button (pull/push) */}
             {currentProject.hasRepository && (
               <GitSyncButton />
             )}
