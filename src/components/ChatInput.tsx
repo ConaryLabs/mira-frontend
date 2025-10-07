@@ -1,39 +1,37 @@
 // src/components/ChatInput.tsx
-// FIXED: Auto-resize without scroll-linked positioning
+// Simplified - waiting state now handled in useChatMessaging
 
 import React, { useRef, KeyboardEvent, useCallback, useEffect } from 'react';
 import { Send } from 'lucide-react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
-import { useUIStore, useInputContent, useIsWaiting } from '../stores/useUIStore';
+import { useChatStore } from '../stores/useChatStore';
+import { useUIStore, useInputContent } from '../stores/useUIStore';
 import { useChatMessaging } from '../hooks/useChatMessaging';
 
 export const ChatInput: React.FC = () => {
   const content = useInputContent();
-  const isWaiting = useIsWaiting();
   const setInputContent = useUIStore(state => state.setInputContent);
-  const setWaiting = useUIStore(state => state.setWaitingForResponse);
   const clearInput = useUIStore(state => state.clearInput);
   
   const connectionState = useWebSocketStore(state => state.connectionState);
   const currentProject = useAppState(state => state.currentProject);
+  const isWaitingForResponse = useChatStore(state => state.isWaitingForResponse);
   
   const { handleSend: sendMessage } = useChatMessaging();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(async () => {
-    if (!content.trim() || isWaiting || connectionState !== 'connected') return;
+    if (!content.trim() || isWaitingForResponse || connectionState !== 'connected') return;
     
-    setWaiting(true);
     await sendMessage(content);
     clearInput();
-    setWaiting(false);
     
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [content, isWaiting, connectionState, sendMessage, clearInput, setWaiting]);
+  }, [content, isWaitingForResponse, connectionState, sendMessage, clearInput]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -65,7 +63,7 @@ export const ChatInput: React.FC = () => {
     }
   }, [connectionState]);
 
-  const isDisabled = connectionState !== 'connected' || isWaiting;
+  const isDisabled = connectionState !== 'connected' || isWaitingForResponse;
 
   return (
     <div className="flex gap-2 items-end w-full">
@@ -79,33 +77,23 @@ export const ChatInput: React.FC = () => {
             connectionState !== 'connected'
               ? "Connecting to Mira..."
               : currentProject
-              ? `Chat with Mira about ${currentProject.name}... (Enter to send, Shift+Enter for new line)`
-              : "Chat with Mira... (Enter to send, Shift+Enter for new line)"
+              ? "Message Mira... (Shift+Enter for new line)"
+              : "Select a project to start chatting..."
           }
           disabled={isDisabled}
-          className="w-full bg-slate-800 text-slate-100 placeholder-slate-400 rounded-lg px-4 py-2 resize-none border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed min-h-[42px] max-h-[200px] overflow-y-auto"
+          className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           rows={1}
+          style={{ minHeight: '48px', maxHeight: '200px' }}
         />
-        {currentProject && (
-          <div className="absolute bottom-full left-0 mb-1 text-xs text-slate-500">
-            Context: {currentProject.name}
-          </div>
-        )}
       </div>
       
       <button
         onClick={handleSend}
-        disabled={!content.trim() || isDisabled}
-        className={`
-          p-3 rounded-lg transition-colors flex-shrink-0
-          ${!content.trim() || isDisabled
-            ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-            : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
-          }
-        `}
+        disabled={isDisabled || !content.trim()}
+        className="p-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg transition-colors"
         title="Send message (Enter)"
       >
-        <Send className="w-5 h-5" />
+        <Send size={20} className="text-white" />
       </button>
     </div>
   );

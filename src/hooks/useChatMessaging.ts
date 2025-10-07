@@ -1,5 +1,5 @@
 // src/hooks/useChatMessaging.ts
-// Enhanced with full file context integration
+// Enhanced with waiting state for batch responses
 
 import { useCallback } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -11,8 +11,9 @@ const ETERNAL_SESSION_ID = 'peter-eternal'; // Match backend default
 export const useChatMessaging = () => {
   const send = useWebSocketStore(state => state.send);
   const addMessage = useChatStore(state => state.addMessage);
+  const setWaitingForResponse = useChatStore(state => state.setWaitingForResponse);
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
-  const { activeArtifact } = useArtifactState(); // KEY: Access active artifact
+  const { activeArtifact } = useArtifactState();
 
   // Use the eternal session ID that matches backend
   const getSessionId = useCallback(() => {
@@ -57,7 +58,7 @@ export const useChatMessaging = () => {
     return 'plaintext';
   }, []);
 
-  const handleSend = useCallback(async (content: string, setWaiting?: (waiting: boolean) => void) => {
+  const handleSend = useCallback(async (content: string) => {
     // Add user message immediately
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -67,9 +68,11 @@ export const useChatMessaging = () => {
     };
     
     addMessage(userMessage);
-    setWaiting?.(true);
+    
+    // Set waiting state BEFORE sending
+    setWaitingForResponse(true);
 
-    // CRITICAL: Enhanced message with FULL context including active file
+    // Build message with full context
     const message = {
       type: 'chat',
       content,
@@ -78,56 +81,36 @@ export const useChatMessaging = () => {
         session_id: getSessionId(),
         timestamp: Date.now(),
         
-        // FILE CONTEXT - The missing piece that makes Mira see your files!
+        // FILE CONTEXT
         file_path: activeArtifact?.linkedFile || null,
         file_content: activeArtifact?.content || null, 
         language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : null,
         
-        // Additional file context
-        artifact_id: activeArtifact?.id || null,
-        artifact_type: activeArtifact?.type || null,
-        artifact_title: activeArtifact?.title || null,
-        file_size: activeArtifact?.content?.length || 0,
-        
-        // Project context (enhanced)
-        project_name: currentProject?.name || null,
+        // PROJECT CONTEXT
         has_repository: currentProject?.hasRepository || false,
-        repository_url: currentProject?.repositoryUrl || null,
-        context_type: currentProject ? 'project' : 'general',
-        
-        // Git context
-        repo_root: currentProject ? `./repos/${currentProject.id}` : null,
-        branch: currentBranch || 'main',
-        modified_files: modifiedFiles,
-        modified_file_count: modifiedFiles.length,
-        
-        // Request enhanced processing from backend
-        request_repo_context: currentProject?.hasRepository || false,
-        request_code_analysis: activeArtifact?.content ? true : false,
+        current_branch: currentBranch || 'main',
+        modified_files_count: modifiedFiles.length,
       }
     };
 
-    // Enhanced logging to show context being sent
-    console.log('Sending ENHANCED message with full context:', {
-      session: getSessionId(),
-      project: currentProject?.name || 'none',
-      hasRepo: currentProject?.hasRepository ? 'yes' : 'no',
+    console.log('[useChatMessaging] Sending message with context:', {
+      hasProject: !!currentProject,
+      projectHasRepo: currentProject?.hasRepository ? 'yes' : 'no',
       activeFile: activeArtifact?.linkedFile || activeArtifact?.title || 'none',
       fileSize: activeArtifact?.content?.length || 0,
       language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : 'none',
       modifiedFiles: modifiedFiles.length,
       artifactId: activeArtifact?.id || 'none',
-      // Don't log actual file content - too verbose, but confirm it exists
-      hasFileContent: !!activeArtifact?.content
     });
 
     try {
       await send(message);
     } catch (error) {
-      console.error('Send failed:', error);
-      setWaiting?.(false);
+      console.error('[useChatMessaging] Send failed:', error);
+      // Clear waiting state on error
+      setWaitingForResponse(false);
     }
-  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, addMessage, getSessionId, detectLanguage]);
+  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, addMessage, setWaitingForResponse, getSessionId, detectLanguage]);
 
   const addSystemMessage = useCallback((content: string) => {
     addMessage({

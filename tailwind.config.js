@@ -40,13 +40,8 @@ export default {
           },
         },
       },
-      // Animation delays for staggered effects
-      animationDelay: {
-        '0': '0ms',
-        '150': '150ms',
-        '300': '300ms',
-        '450': '450ms',
-      },
+      // NOTE: We use inline styles for animation delays (e.g., style={{ animationDelay: '150ms' }})
+      // This is cleaner than adding Tailwind utilities and avoids CSS generation issues
     },
   },
   plugins: [],

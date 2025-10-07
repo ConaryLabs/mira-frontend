@@ -33,7 +33,10 @@ interface ChatStore {
   messages: ChatMessage[];
   currentSessionId: string;
   
-  // Streaming state
+  // Response waiting state (for non-streaming batch responses)
+  isWaitingForResponse: boolean;
+  
+  // Streaming state (for progressive streaming - currently unused)
   isStreaming: boolean;
   streamingContent: string;
   streamingMessageId: string | null;
@@ -45,7 +48,10 @@ interface ChatStore {
   clearMessages: () => void;
   setSessionId: (id: string) => void;
   
-  // Streaming actions
+  // Waiting state actions
+  setWaitingForResponse: (waiting: boolean) => void;
+  
+  // Streaming actions (for future use)
   startStreaming: () => void;
   appendStreamContent: (content: string) => void;
   endStreaming: () => void;
@@ -61,6 +67,7 @@ export const useChatStore = create<ChatStore>()(
       // Initial state
       messages: [],
       currentSessionId: 'peter-eternal',
+      isWaitingForResponse: false,
       isStreaming: false,
       streamingContent: '',
       streamingMessageId: null,
@@ -68,7 +75,9 @@ export const useChatStore = create<ChatStore>()(
       // Message management
       addMessage: (message) => {
         set(state => ({
-          messages: [...state.messages, message]
+          messages: [...state.messages, message],
+          // Clear waiting state when assistant responds
+          isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
         }));
       },
       
@@ -85,20 +94,26 @@ export const useChatStore = create<ChatStore>()(
       },
       
       clearMessages: () => {
-        set({ messages: [] });
+        set({ messages: [], isWaitingForResponse: false });
       },
       
       setSessionId: (id) => {
         set({ currentSessionId: id });
       },
       
-      // Streaming
+      // Waiting state
+      setWaitingForResponse: (waiting) => {
+        set({ isWaitingForResponse: waiting });
+      },
+      
+      // Streaming (for future progressive streaming)
       startStreaming: () => {
         const messageId = `streaming-${Date.now()}`;
         set({
           isStreaming: true,
           streamingContent: '',
           streamingMessageId: messageId,
+          isWaitingForResponse: false, // Streaming replaces waiting
         });
         
         // Add placeholder message
@@ -160,7 +175,7 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         messages: state.messages,
         currentSessionId: state.currentSessionId,
-        // Don't persist streaming state
+        // Don't persist streaming or waiting state
       }),
     }
   )
