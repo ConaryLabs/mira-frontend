@@ -2,9 +2,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { ArrowDown } from 'lucide-react';
-import { useChatStore } from '../stores/useChatStore';
+import { useChatStore, ChatMessage as StoreChatMessage } from '../stores/useChatStore';
 import { ChatMessage } from './ChatMessage';
 import { ThinkingIndicator } from './ThinkingIndicator';
+
+const EmptyState: React.FC = () => (
+  <div className="flex items-center justify-center h-full text-gray-500">
+    <div className="text-center">
+      <p className="text-lg mb-2">No messages yet</p>
+      <p className="text-sm">Start a conversation to see messages here</p>
+    </div>
+  </div>
+);
 
 export const MessageList: React.FC = () => {
   const messages = useChatStore(state => state.messages);
@@ -74,48 +83,31 @@ export const MessageList: React.FC = () => {
         ref={virtuosoRef}
         data={messages}
         overscan={200}
-        itemContent={(index, message) => (
+        itemContent={(index, message: StoreChatMessage) => (
           <div className="px-4 py-2">
+            {/* FIX: message is now explicitly typed as StoreChatMessage from useChatStore */}
             <ChatMessage message={message} />
           </div>
         )}
         followOutput={false}
         initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
-        alignToBottom
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={50}
-        components={{
-          Footer: () => {
-            // Render thinking indicator AS PART OF THE LIST, not overlapping
-            if (!isWaitingForResponse) return null;
-            return (
-              <div className="px-4 py-4">
-                <ThinkingIndicator />
-              </div>
-            );
-          }
-        }}
+        alignToBottom
       />
       
-      {/* Scroll to bottom button - only show when scrolled up AND not waiting */}
-      {showScrollButton && !isWaitingForResponse && (
+      {/* Scroll to bottom button */}
+      {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-6 right-6 z-10 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-all duration-200 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          title="Scroll to bottom"
+          className="absolute bottom-4 right-4 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-all"
           aria-label="Scroll to bottom"
         >
-          <ArrowDown size={20} />
+          <ArrowDown className="w-5 h-5" />
         </button>
       )}
     </div>
   );
 };
 
-const EmptyState: React.FC = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-center text-slate-500 text-sm">
-      No messages yet. Start a conversation with Mira.
-    </div>
-  </div>
-);
+export default MessageList;

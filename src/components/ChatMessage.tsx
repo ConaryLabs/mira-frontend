@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';
+import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';  // ← Only one Artifact now!
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
 import { Check, FileCode, AlertCircle, User, Bot } from 'lucide-react';
@@ -86,182 +86,143 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const handleViewInArtifacts = (artifact: Artifact) => {
     console.log('[ChatMessage] Opening artifact in viewer:', artifact.id);
     
-    const ext = artifact.path?.split('.').pop()?.toLowerCase();
-    let type: 'application/javascript' | 'application/typescript' | 'text/html' | 'text/css' | 'application/json' | 'text/python' | 'text/rust' | 'text/plain' | 'text/markdown';
-    let language: string;
-    
-    switch (ext) {
-      case 'rs': type = 'text/rust'; language = 'rust'; break;
-      case 'ts': case 'tsx': type = 'application/typescript'; language = 'typescript'; break;
-      case 'js': case 'jsx': type = 'application/javascript'; language = 'javascript'; break;
-      case 'py': type = 'text/python'; language = 'python'; break;
-      case 'html': type = 'text/html'; language = 'html'; break;
-      case 'css': type = 'text/css'; language = 'css'; break;
-      case 'json': type = 'application/json'; language = 'json'; break;
-      case 'md': type = 'text/markdown'; language = 'markdown'; break;
-      default: type = 'text/plain'; language = 'plaintext';
-    }
-    
-    const fullArtifact = {
-      id: artifact.id,
-      title: artifact.path?.split('/').pop() || 'Unknown File',
-      content: artifact.content,
-      type,
-      language,
-      linkedFile: artifact.path,
-      created: Date.now(),
-      modified: Date.now(),
-    };
-    
-    addArtifact(fullArtifact);
+    // No conversion needed anymore - Artifact is unified!
+    addArtifact(artifact);
     setActiveArtifact(artifact.id);
     setShowArtifacts(true);
   };
   
-  const getChangeTypeBadge = (changeType?: string) => {
-    switch (changeType) {
-      case 'primary': return 'bg-red-900 text-red-300 border-red-700';
-      case 'import': return 'bg-yellow-900 text-yellow-300 border-yellow-700';
-      case 'type': return 'bg-purple-900 text-purple-300 border-purple-700';
-      case 'cascade': return 'bg-blue-900 text-blue-300 border-blue-700';
-      default: return 'bg-gray-700 text-gray-300 border-gray-600';
-    }
-  };
+  // message.artifacts is already Artifact[] from the store
+  const messageArtifacts = message.artifacts || [];
   
-  // USER MESSAGE STYLE - Compact box on the right like Claude.ai
-  if (isUser) {
-    return (
-      <div className="flex justify-end mb-6">
-        <div className="max-w-[80%] bg-slate-700/40 rounded-2xl px-5 py-3 border border-slate-600/50">
-          <div className="flex items-start gap-3">
-            <div className="flex-1 text-slate-100 whitespace-pre-wrap break-words">
-              {message.content}
-            </div>
-            <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-              <User size={14} className="text-white" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const isArtifactApplied = (id: string) => appliedArtifacts.has(id);
   
-  // SYSTEM MESSAGE STYLE
-  if (isSystem) {
-    return (
-      <div className="mb-4">
-        <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-3 text-sm text-yellow-300 italic">
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-  
-  // ASSISTANT MESSAGE STYLE - Full width, open layout like Claude.ai
   return (
-    <div className="mb-6">
-      <div className="flex items-start gap-3">
-        {/* Mira Avatar */}
-        <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-          <Bot size={14} className="text-white" />
-        </div>
-        
-        {/* Message Content */}
-        <div className="flex-1 min-w-0">
-          <div className="prose prose-invert prose-slate max-w-none">
+    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+      {/* Avatar */}
+      <div className="flex-shrink-0">
+        {isUser ? (
+          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+            <User className="w-5 h-5 text-white" />
+          </div>
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-white" />
+          </div>
+        )}
+      </div>
+      
+      {/* Message Content */}
+      <div className={`flex-1 ${isUser ? 'flex justify-end' : ''}`}>
+        <div className={`max-w-[85%] ${isUser ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-100'} rounded-lg p-4`}>
+          <div className="prose prose-invert prose-sm max-w-none">
             <ReactMarkdown
               components={{
-                code(props) {
-                  const {children, className, ...rest} = props;
+                code: ({ node, inline, className, children, ...rest }: any) => {
                   const match = /language-(\w+)/.exec(className || '');
-                  const inline = !match;
-                  
-                  return !inline ? (
-                    <div className="my-4 rounded-lg overflow-hidden border border-slate-700">
-                      <SyntaxHighlighter
-                        style={vscDarkPlus as any}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          margin: 0,
-                          background: 'rgb(15 23 42)',
-                          fontSize: '0.875rem',
-                          padding: '1rem',
-                        }}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    </div>
+                  return !inline && match ? (
+                    <SyntaxHighlighter
+                      style={vscDarkPlus as any}
+                      language={match[1]}
+                      PreTag="div"
+                      {...rest}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
                   ) : (
-                    <code className="bg-slate-800 px-1.5 py-0.5 rounded text-sm text-pink-400" {...rest}>
+                    <code className={className} {...rest}>
                       {children}
                     </code>
                   );
                 },
-                p: ({children}) => <p className="mb-4 last:mb-0 text-slate-200 leading-relaxed">{children}</p>,
-                ul: ({children}) => <ul className="mb-4 space-y-1 text-slate-200">{children}</ul>,
-                ol: ({children}) => <ol className="mb-4 space-y-1 text-slate-200">{children}</ol>,
-                li: ({children}) => <li className="ml-4">{children}</li>,
-                blockquote: ({children}) => (
-                  <blockquote className="border-l-4 border-slate-600 pl-4 my-4 text-slate-400 italic">
-                    {children}
-                  </blockquote>
-                ),
+                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc pl-5 mb-2">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-5 mb-2">{children}</ol>,
+                li: ({ children }) => <li className="mb-1">{children}</li>,
+                h1: ({ children }) => <h1 className="text-xl font-bold mb-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-bold mb-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-bold mb-1">{children}</h3>,
               }}
             >
               {message.content}
             </ReactMarkdown>
           </div>
           
-          {/* Artifacts Section - Claude.ai style */}
-          {message.artifacts && message.artifacts.length > 0 && (
-            <div className="mt-4 space-y-2">
-              {message.artifacts.map((artifact) => {
-                const isApplied = appliedArtifacts.has(artifact.id);
+          {/* Artifacts Section */}
+          {messageArtifacts.length > 0 && (
+            <div className="mt-4 space-y-2 border-t border-gray-700 pt-3">
+              <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
+                <FileCode className="w-4 h-4" />
+                <span>{messageArtifacts.length} file{messageArtifacts.length !== 1 ? 's' : ''} modified</span>
+              </div>
+              
+              {messageArtifacts.map((artifact) => {
+                const isApplied = isArtifactApplied(artifact.id);
+                const isPrimary = artifact.changeType === 'primary';
                 
                 return (
                   <div
                     key={artifact.id}
-                    onClick={() => handleViewInArtifacts(artifact)}
-                    className="group cursor-pointer bg-slate-800/40 hover:bg-slate-800/60 border border-slate-700 hover:border-slate-600 rounded-lg p-3 transition-all"
+                    className={`
+                      p-3 rounded-lg border transition-colors
+                      ${isPrimary 
+                        ? 'bg-blue-900/20 border-blue-700' 
+                        : 'bg-gray-800/50 border-gray-700'
+                      }
+                    `}
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 bg-blue-600/20 border border-blue-600/50 rounded flex items-center justify-center flex-shrink-0">
-                        <FileCode className="w-4 h-4 text-blue-400" />
-                      </div>
-                      
+                    <div className="flex items-start justify-between gap-3">
+                      {/* File Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-sm text-slate-200 truncate">
-                            {artifact.path}
+                          <FileCode className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <span className="text-sm font-mono text-gray-300 truncate">
+                            {artifact.path || 'Untitled'}
                           </span>
-                          {artifact.changeType && (
-                            <span className={`text-xs px-2 py-0.5 rounded border flex-shrink-0 ${getChangeTypeBadge(artifact.changeType)}`}>
+                          {isPrimary && (
+                            <span className="px-2 py-0.5 text-xs bg-blue-700 text-blue-100 rounded">
+                              Primary Fix
+                            </span>
+                          )}
+                          {artifact.changeType && !isPrimary && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded capitalize">
                               {artifact.changeType}
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">
-                          Click to view in Artifact Viewer
+                        <div className="text-xs text-gray-500">
+                          {artifact.language || 'unknown'} • {artifact.content.split('\n').length} lines
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => handleViewInArtifacts(artifact)}
+                          className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                        >
+                          View
+                        </button>
+                        
                         {isApplied ? (
                           <>
+                            <span className="text-xs text-green-400 flex items-center gap-1">
+                              <Check className="w-3 h-3" />
+                              Applied
+                            </span>
                             <button
                               onClick={() => handleUndoArtifact(artifact)}
-                              className="text-xs px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-md transition-colors"
+                              className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
                             >
                               Undo
                             </button>
-                            <Check className="w-4 h-4 text-green-400" />
                           </>
                         ) : (
                           <button
                             onClick={() => handleApplyArtifact(artifact)}
-                            className="text-xs px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors"
+                            className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center gap-1"
                           >
+                            <Check className="w-3 h-3" />
                             Apply
                           </button>
                         )}
@@ -271,18 +232,28 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 );
               })}
               
-              {message.artifacts.length > 1 && (
+              {/* Apply All Button */}
+              {messageArtifacts.length > 1 && messageArtifacts.some(a => a?.changeType) && (
                 <button
                   onClick={handleApplyAll}
-                  className="w-full mt-2 text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  className="w-full mt-2 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center justify-center gap-2"
+                  disabled={messageArtifacts.every(a => isArtifactApplied(a.id))}
                 >
-                  Apply All {message.artifacts.length} Files
+                  <Check className="w-4 h-4" />
+                  Apply All {messageArtifacts.filter(a => a?.changeType && !isArtifactApplied(a.id)).length} Files
                 </button>
               )}
             </div>
           )}
+          
+          {/* Timestamp */}
+          <div className="mt-2 text-xs text-gray-500">
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+export default ChatMessage;

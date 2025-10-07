@@ -20,42 +20,26 @@ export const useChatMessaging = () => {
     return ETERNAL_SESSION_ID;
   }, []);
 
-  // Helper to detect language from file path or artifact type
-  const detectLanguage = useCallback((filePath?: string, artifactType?: string) => {
-    if (filePath) {
-      const ext = filePath.split('.').pop()?.toLowerCase();
-      switch (ext) {
-        case 'rs': return 'rust';
-        case 'ts': case 'tsx': return 'typescript';
-        case 'js': case 'jsx': return 'javascript';
-        case 'py': return 'python';
-        case 'go': return 'go';
-        case 'md': return 'markdown';
-        case 'html': return 'html';
-        case 'css': return 'css';
-        case 'json': return 'json';
-        case 'toml': return 'toml';
-        case 'yaml': case 'yml': return 'yaml';
-        case 'sh': case 'bash': return 'shell';
-        default: return 'plaintext';
-      }
-    }
+  // Helper to detect language from file path
+  const detectLanguage = useCallback((filePath?: string) => {
+    if (!filePath) return 'plaintext';
     
-    if (artifactType) {
-      switch (artifactType) {
-        case 'text/rust': return 'rust';
-        case 'application/typescript': return 'typescript';
-        case 'application/javascript': return 'javascript';
-        case 'text/python': return 'python';
-        case 'text/markdown': return 'markdown';
-        case 'text/html': return 'html';
-        case 'text/css': return 'css';
-        case 'application/json': return 'json';
-        default: return 'plaintext';
-      }
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'rs': return 'rust';
+      case 'ts': case 'tsx': return 'typescript';
+      case 'js': case 'jsx': return 'javascript';
+      case 'py': return 'python';
+      case 'go': return 'go';
+      case 'md': return 'markdown';
+      case 'html': return 'html';
+      case 'css': return 'css';
+      case 'json': return 'json';
+      case 'toml': return 'toml';
+      case 'yaml': case 'yml': return 'yaml';
+      case 'sh': case 'bash': return 'shell';
+      default: return 'plaintext';
     }
-    
-    return 'plaintext';
   }, []);
 
   const handleSend = useCallback(async (content: string) => {
@@ -81,10 +65,10 @@ export const useChatMessaging = () => {
         session_id: getSessionId(),
         timestamp: Date.now(),
         
-        // FILE CONTEXT
-        file_path: activeArtifact?.linkedFile || null,
+        // FILE CONTEXT (use path instead of linkedFile)
+        file_path: activeArtifact?.path || null,
         file_content: activeArtifact?.content || null, 
-        language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : null,
+        language: activeArtifact ? detectLanguage(activeArtifact.path) : null,
         
         // PROJECT CONTEXT
         has_repository: currentProject?.hasRepository || false,
@@ -96,9 +80,9 @@ export const useChatMessaging = () => {
     console.log('[useChatMessaging] Sending message with context:', {
       hasProject: !!currentProject,
       projectHasRepo: currentProject?.hasRepository ? 'yes' : 'no',
-      activeFile: activeArtifact?.linkedFile || activeArtifact?.title || 'none',
+      activeFile: activeArtifact?.path || 'none',
       fileSize: activeArtifact?.content?.length || 0,
-      language: activeArtifact ? detectLanguage(activeArtifact.linkedFile, activeArtifact.type) : 'none',
+      language: activeArtifact ? detectLanguage(activeArtifact.path) : 'none',
       modifiedFiles: modifiedFiles.length,
       artifactId: activeArtifact?.id || 'none',
     });

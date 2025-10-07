@@ -1,13 +1,11 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// PERFORMANCE FIX: Filtered subscription for data/status/error messages only
+// SCORCHED EARTH: Import Artifact from useChatStore
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import type { Project, Artifact } from '../types';
-
-// Type alias for allowed artifact types
-type ArtifactType = Artifact['type'];
+import type { Project } from '../types';
+import type { Artifact } from '../stores/useChatStore';  // ← Fixed import
 
 export const useWebSocketMessageHandler = () => {
   const subscribe = useWebSocketStore(state => state.subscribe);
@@ -24,14 +22,13 @@ export const useWebSocketMessageHandler = () => {
   } = useAppState();
 
   useEffect(() => {
-    // PERFORMANCE FIX: Only subscribe to data/status/error messages
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
         console.log('WebSocket message received:', message);
         handleMessage(message);
       },
-      ['data', 'status', 'error'] // Filter: only receive these message types
+      ['data', 'status', 'error']
     );
 
     return unsubscribe;
@@ -69,28 +66,6 @@ export const useWebSocketMessageHandler = () => {
     }
   };
 
-  // Helper functions for artifact creation
-  const getArtifactType = (filePath: string): ArtifactType => {
-    if (!filePath) return 'text/plain';
-    
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'rs': return 'text/rust';
-      case 'js': return 'application/javascript';
-      case 'jsx': return 'application/javascript';
-      case 'ts': return 'application/typescript';
-      case 'tsx': return 'application/typescript';
-      case 'py': return 'text/python';
-      case 'json': return 'application/json';
-      case 'html': return 'text/html';
-      case 'css': return 'text/css';
-      case 'md': return 'text/markdown';
-      case 'toml': case 'yaml': case 'yml': case 'sh': case 'bash': case 'txt': case 'log':
-        return 'text/plain';
-      default: return 'text/plain';
-    }
-  };
-
   const detectLanguage = (filePath: string): string => {
     if (!filePath) return 'plaintext';
     
@@ -120,7 +95,6 @@ export const useWebSocketMessageHandler = () => {
     }
     
     switch (data.type) {
-      // Handle file_content to create artifacts
       case 'file_content':
         console.log('File content received, creating artifact:', {
           path: data.path,
@@ -130,16 +104,12 @@ export const useWebSocketMessageHandler = () => {
         if (data.content !== undefined) {
           const newArtifact: Artifact = {
             id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            title: data.path?.split('/').pop() || 'Unknown File',
+            path: data.path || 'untitled',
             content: data.content || '// No content',
-            type: getArtifactType(data.path || ''),
             language: detectLanguage(data.path || ''),
-            linkedFile: data.path,
-            created: Date.now(),
-            modified: Date.now(),
           };
           
-          console.log('Creating artifact from file:', newArtifact.title);
+          console.log('Creating artifact from file:', newArtifact.path);
           addArtifact(newArtifact);
           setShowFileExplorer(true);
         }
@@ -152,7 +122,6 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
 
-      // NEW: Handle project_list responses
       case 'project_list':
         console.log('Processing project list:', data.projects?.length || 0, 'projects');
         if (data.projects && Array.isArray(data.projects)) {
@@ -161,11 +130,9 @@ export const useWebSocketMessageHandler = () => {
         }
         break;
 
-      // NEW: Handle project_created responses
       case 'project_created':
         console.log('Project created:', data.project?.name);
         if (data.project) {
-          // Add the new project to the list
           const currentProjects = useAppState.getState().projects;
           setProjects([...currentProjects, data.project]);
         }
@@ -187,18 +154,15 @@ export const useWebSocketMessageHandler = () => {
         console.log('File tree received:', data.tree?.length || 0, 'items');
         break;
 
-      // FIXED: Document-related messages are handled by DocumentList/DocumentSearch components
       case 'document_list':
       case 'document_search_results':
       case 'document_content':
-        // These are handled by document components via their own subscriptions
         console.log(`Document message (${data.type}) - handled by document components`);
         break;
 
       case 'project_updated':
         console.log('Project update notification:', data.project_id);
         if (data.project) {
-          // Get current projects from store
           const currentProjects = useAppState.getState().projects;
           const updatedProjects = currentProjects.length 
             ? currentProjects.map((p: Project) =>

@@ -1,24 +1,23 @@
 // src/stores/useChatStore.ts
-// Chat store with localStorage persistence + backend sync
+// SCORCHED EARTH: Minimal, clean Artifact type - no backward compatibility bullshit
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-// Artifact type for error fixes
+// ===== MINIMAL UNIFIED ARTIFACT =====
 export interface Artifact {
   id: string;
-  path: string;
-  content: string;
-  language?: string;
-  changeType?: 'primary' | 'import' | 'type' | 'cascade';
-  originalContent?: string;
+  path: string;        // File path - primary identifier
+  content: string;     // File content
+  language?: string;   // Syntax highlighting (inferred from path)
+  changeType?: 'primary' | 'import' | 'type' | 'cascade';  // For error-to-fix workflow
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  artifacts?: Artifact[];
+  artifacts?: Artifact[];  // Direct artifact array
   timestamp: number;
   metadata?: {
     session_id?: string;
@@ -29,14 +28,9 @@ export interface ChatMessage {
 }
 
 interface ChatStore {
-  // Messages
   messages: ChatMessage[];
   currentSessionId: string;
-  
-  // Response waiting state (for non-streaming batch responses)
   isWaitingForResponse: boolean;
-  
-  // Streaming state (for progressive streaming - currently unused)
   isStreaming: boolean;
   streamingContent: string;
   streamingMessageId: string | null;
@@ -47,18 +41,10 @@ interface ChatStore {
   setMessages: (messages: ChatMessage[]) => void;
   clearMessages: () => void;
   setSessionId: (id: string) => void;
-  
-  // Waiting state actions
   setWaitingForResponse: (waiting: boolean) => void;
-  
-  // Streaming actions (for future use)
   startStreaming: () => void;
   appendStreamContent: (content: string) => void;
   endStreaming: () => void;
-  
-  // Artifact actions
-  markArtifactApplied: (messageId: string, artifactId: string) => void;
-  getArtifact: (messageId: string, artifactId: string) => Artifact | undefined;
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -76,7 +62,6 @@ export const useChatStore = create<ChatStore>()(
       addMessage: (message) => {
         set(state => ({
           messages: [...state.messages, message],
-          // Clear waiting state when assistant responds
           isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
         }));
       },
@@ -89,105 +74,54 @@ export const useChatStore = create<ChatStore>()(
         }));
       },
       
-      setMessages: (messages) => {
-        set({ messages });
-      },
+      setMessages: (messages) => set({ messages }),
+      clearMessages: () => set({ messages: [] }),
+      setSessionId: (id) => set({ currentSessionId: id }),
+      setWaitingForResponse: (waiting) => set({ isWaitingForResponse: waiting }),
       
-      clearMessages: () => {
-        set({ messages: [], isWaitingForResponse: false });
-      },
+      // Streaming
+      startStreaming: () => set({ 
+        isStreaming: true, 
+        streamingContent: '', 
+        streamingMessageId: `stream-${Date.now()}` 
+      }),
       
-      setSessionId: (id) => {
-        set({ currentSessionId: id });
-      },
-      
-      // Waiting state
-      setWaitingForResponse: (waiting) => {
-        set({ isWaitingForResponse: waiting });
-      },
-      
-      // Streaming (for future progressive streaming)
-      startStreaming: () => {
-        const messageId = `streaming-${Date.now()}`;
-        set({
-          isStreaming: true,
-          streamingContent: '',
-          streamingMessageId: messageId,
-          isWaitingForResponse: false, // Streaming replaces waiting
-        });
-        
-        // Add placeholder message
-        get().addMessage({
-          id: messageId,
-          role: 'assistant',
-          content: '',
-          timestamp: Date.now(),
-        });
-      },
-      
-      appendStreamContent: (content) => {
-        set(state => ({
-          streamingContent: state.streamingContent + content,
-        }));
-        
-        const { streamingMessageId, streamingContent } = get();
-        if (streamingMessageId) {
-          get().updateMessage(streamingMessageId, {
-            content: streamingContent + content,
-          });
-        }
-      },
+      appendStreamContent: (content) => set(state => ({ 
+        streamingContent: state.streamingContent + content 
+      })),
       
       endStreaming: () => {
-        set({
-          isStreaming: false,
-          streamingContent: '',
-          streamingMessageId: null,
-        });
-      },
-      
-      // Artifact operations
-      markArtifactApplied: (messageId, artifactId) => {
-        set(state => ({
-          messages: state.messages.map(msg => {
-            if (msg.id === messageId && msg.artifacts) {
-              return {
-                ...msg,
-                artifacts: msg.artifacts.map(artifact =>
-                  artifact.id === artifactId
-                    ? { ...artifact, applied: true } as any
-                    : artifact
-                )
-              };
-            }
-            return msg;
-          })
-        }));
-      },
-      
-      getArtifact: (messageId, artifactId) => {
-        const message = get().messages.find(m => m.id === messageId);
-        return message?.artifacts?.find(a => a.id === artifactId);
+        const { streamingContent, streamingMessageId } = get();
+        if (streamingContent && streamingMessageId) {
+          set(state => ({
+            messages: [...state.messages, {
+              id: streamingMessageId,
+              role: 'assistant',
+              content: streamingContent,
+              timestamp: Date.now(),
+            }],
+            isStreaming: false,
+            streamingContent: '',
+            streamingMessageId: null,
+            isWaitingForResponse: false,
+          }));
+        } else {
+          set({ isStreaming: false, isWaitingForResponse: false });
+        }
       },
     }),
     {
-      name: 'mira-chat-storage', // localStorage key
+      name: 'mira-chat-storage',
       partialize: (state) => ({
         messages: state.messages,
         currentSessionId: state.currentSessionId,
-        // Don't persist streaming or waiting state
       }),
     }
   )
 );
 
-// Helper hook for current session messages
 export function useCurrentSession() {
   const messages = useChatStore(state => state.messages);
   const sessionId = useChatStore(state => state.currentSessionId);
-  
-  return {
-    messages,
-    sessionId,
-  };
+  return { messages, sessionId };
 }

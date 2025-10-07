@@ -1,9 +1,10 @@
 // src/stores/useAppState.ts
-// PHASE 1.3: Added appliedFiles tracking for artifact workflow
+// Import Artifact from useChatStore (unified type)
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, Artifact, Message } from '../types';
+import type { Project } from '../types';
+import type { Artifact } from './useChatStore';  // ← CHANGED: Import from useChatStore
 
 interface AppState {
   // UI State
@@ -20,12 +21,10 @@ interface AppState {
   currentBranch: string;
   gitStatus: any;
   
-  // Artifacts
+  // Artifacts (unified type from useChatStore)
   artifacts: Artifact[];
   activeArtifactId: string | null;
-  // ===== PHASE 1.3: NEW =====
   appliedFiles: Set<string>; // Track which artifacts have been applied to disk
-  // ===== END PHASE 1.3 =====
   
   // Code Intelligence
   codeAnalysis: any;
@@ -53,11 +52,9 @@ interface AppState {
   setActiveArtifact: (id: string | null) => void;
   updateArtifact: (id: string, updates: Partial<Artifact>) => void;
   removeArtifact: (id: string) => void;
-  // ===== PHASE 1.3: NEW =====
   markArtifactApplied: (id: string) => void;
   markArtifactUnapplied: (id: string) => void;
   isArtifactApplied: (id: string) => boolean;
-  // ===== END PHASE 1.3 =====
   setPersona: (persona: 'default' | 'professional' | 'chaos') => void;
   setMood: (mood: 'playful' | 'focused' | 'frustrated' | null) => void;
 }
@@ -76,9 +73,7 @@ export const useAppState = create<AppState>()(
       gitStatus: null,
       artifacts: [],
       activeArtifactId: null,
-      // ===== PHASE 1.3: NEW =====
       appliedFiles: new Set<string>(),
-      // ===== END PHASE 1.3 =====
       codeAnalysis: null,
       complexityHotspots: [],
       relevantMemories: [],
@@ -149,7 +144,6 @@ export const useAppState = create<AppState>()(
         };
       }),
       
-      // ===== PHASE 1.3: NEW ACTIONS =====
       markArtifactApplied: (id) => set((state) => ({
         appliedFiles: new Set(state.appliedFiles).add(id)
       })),
@@ -163,7 +157,6 @@ export const useAppState = create<AppState>()(
       isArtifactApplied: (id) => {
         return get().appliedFiles.has(id);
       },
-      // ===== END PHASE 1.3 =====
       
       setPersona: (persona) => set({ currentPersona: persona }),
       setMood: (mood) => set({ mood }),
@@ -192,7 +185,7 @@ export const useArtifactState = () => {
     artifacts, 
     activeArtifactId, 
     showArtifacts,
-    appliedFiles, // Include appliedFiles
+    appliedFiles,
     addArtifact,
     setActiveArtifact,
     updateArtifact,

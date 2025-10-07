@@ -1,8 +1,23 @@
 // src/hooks/useArtifacts.ts
+// SCORCHED EARTH: Minimal artifact operations, no legacy cruft
+
 import { useCallback } from 'react';
 import { useAppState, useArtifactState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import type { Artifact, ArtifactHook } from '../types';
+import type { Artifact } from '../stores/useChatStore';
+
+export interface ArtifactHook {
+  artifacts: Artifact[];
+  activeArtifact: Artifact | null;
+  showArtifacts: boolean;
+  addArtifact: (artifact: Artifact) => void;
+  setActiveArtifact: (id: string | null) => void;
+  updateArtifact: (id: string, updates: Partial<Artifact>) => void;
+  removeArtifact: (id: string) => void;
+  closeArtifacts: () => void;
+  saveArtifactToFile: (id: string, filename: string) => Promise<void>;
+  copyArtifact: (id: string) => void;
+}
 
 export const useArtifacts = (): ArtifactHook => {
   const {
@@ -36,10 +51,8 @@ export const useArtifacts = (): ArtifactHook => {
         }
       });
       
-      // Update artifact to show it's linked to a file
-      updateArtifact(id, { linkedFile: filename });
-      
-      // TODO: Mark file as modified for git tracking
+      // Update path to new filename
+      updateArtifact(id, { path: filename });
       console.log(`Saved artifact to ${filename}`);
     } catch (error) {
       console.error('Failed to save artifact:', error);
@@ -56,25 +69,6 @@ export const useArtifacts = (): ArtifactHook => {
       console.error('Failed to copy artifact:', error);
     });
   }, [artifacts]);
-  
-  const createArtifact = useCallback((
-    title: string, 
-    content: string, 
-    type: Artifact['type'],
-    language?: string
-  ) => {
-    const artifact: Artifact = {
-      id: `artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      title,
-      content,
-      type,
-      language,
-      created: Date.now(),
-      modified: Date.now()
-    };
-    addArtifact(artifact);
-    return artifact;
-  }, [addArtifact]);
   
   return {
     artifacts,
