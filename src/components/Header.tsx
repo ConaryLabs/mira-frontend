@@ -37,8 +37,8 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
           <Settings size={14} className="text-slate-500" />
         </button>
         
-        {/* Quick File Open (Cmd+P) - only show if project with repo */}
-        {currentProject?.hasRepository && (
+        {/* Quick File Open (Cmd+P) - only show if project has repo */}
+        {currentProject?.has_repository && (
           <button
             onClick={onQuickFileOpen}
             className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md"
@@ -49,23 +49,23 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
         )}
       </div>
       
-      {/* Center: Project context indicator */}
-      <div className="flex-1 flex justify-center">
-        {currentProject && (
+      {/* Center: Project context indicator - only show if project exists */}
+      {currentProject && (
+        <div className="flex-1 flex justify-center">
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <span>Working in project:</span>
             <span className="text-blue-400 font-medium">{currentProject.name}</span>
-            {currentProject.hasRepository && (
+            {currentProject.has_repository && (
               <span className="px-2 py-1 bg-green-900/30 text-green-300 rounded text-xs">
                 Repository
               </span>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
       
-      {/* Right: Action buttons */}
-      <div className="flex items-center gap-2">
+      {/* Right: Action buttons - only show if project exists */}
+      <div className="flex items-center gap-2 ml-auto">
         {currentProject && (
           <>
             <button
@@ -75,12 +75,11 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
               <Play size={16} />
             </button>
             
-            {/* Git sync button (pull/push) */}
-            {currentProject.hasRepository && (
+            {/* Git sync button - only show if project has repo */}
+            {currentProject.has_repository && (
               <GitSyncButton />
             )}
             
-            {/* Git commit/push button */}
             <CommitPushButton />
           </>
         )}
@@ -91,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({ onQuickFileOpen }) => {
             isOpen={showArtifacts}
             onClick={() => setShowArtifacts(!showArtifacts)}
             artifactCount={artifacts.length}
-            hasGitRepos={currentProject?.hasRepository || false}
+            hasGitRepos={currentProject?.has_repository || false}
             isDark={true}
           />
         )}

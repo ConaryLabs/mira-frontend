@@ -7,12 +7,17 @@ export interface Project {
   name: string;
   description?: string;
   tags?: string[];
-  path?: string;
-  gitUrl?: string;
-  lastAccessed: number;
-  created: number;
-  hasRepository?: boolean;
-  repositoryUrl?: string;
+  owner?: string;
+  
+  // Backend sends these as snake_case (matching Rust serialization)
+  has_repository?: boolean;
+  repository_url?: string;
+  import_status?: string;
+  last_sync_at?: string | null;
+  
+  // Backend sends DateTime<Utc> as RFC3339 string
+  created_at: string;
+  updated_at: string;
 }
 
 // ===== DOCUMENTS =====

@@ -149,9 +149,8 @@ export const useWebSocketMessageHandler = () => {
         break;
 
       case 'local_directory_attached':
-        // ← ADDED: Handle local directory attachment
         console.log('Local directory attached:', data.path);
-        // Refresh project list to show updated attachment info
+        // CRITICAL: Refresh project list to show updated attachment status
         send({
           type: 'project_command',
           method: 'project.list',

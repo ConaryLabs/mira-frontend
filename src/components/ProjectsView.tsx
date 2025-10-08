@@ -101,8 +101,18 @@ export const ProjectsView: React.FC = () => {
     }
   };
   
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
+  const formatDate = (timestamp: string | number) => {
+    // Handle both RFC3339 strings from backend and Unix timestamps
+    const date = typeof timestamp === 'string' 
+      ? new Date(timestamp)  // Parse RFC3339 string like "2025-10-08T04:13:20Z"
+      : new Date(timestamp * 1000);  // Unix timestamp in seconds
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date:', timestamp);
+      return 'Invalid date';
+    }
+    
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -282,7 +292,7 @@ export const ProjectsView: React.FC = () => {
                     <h3 className="text-lg font-semibold text-slate-100 truncate">
                       {project.name}
                     </h3>
-                    {project.hasRepository && (
+                    {project.has_repository && (
                       <div className="flex items-center gap-1 mt-1 text-xs text-green-400">
                         <GitBranch size={12} />
                         Repository attached
@@ -302,7 +312,7 @@ export const ProjectsView: React.FC = () => {
                 <div className="flex items-center gap-4 text-xs text-slate-500 mb-4">
                   <div className="flex items-center gap-1">
                     <Clock size={12} />
-                    {formatDate(project.lastAccessed)}
+                    {formatDate(project.created_at)}
                   </div>
                   {project.tags && project.tags.length > 0 && (
                     <div className="flex items-center gap-1">
@@ -332,7 +342,7 @@ export const ProjectsView: React.FC = () => {
                 )}
                 
                 {/* Attach Local Directory Button */}
-                {!project.hasRepository && currentProject?.id === project.id && (
+                {!project.has_repository && currentProject?.id === project.id && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

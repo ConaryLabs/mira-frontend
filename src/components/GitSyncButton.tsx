@@ -77,7 +77,7 @@ export const GitSyncButton: React.FC = () => {
     }
   };
   
-  if (!currentProject?.hasRepository) {
+  if (!currentProject?.has_repository) {
     return null;
   }
   

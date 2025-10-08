@@ -71,7 +71,7 @@ export const useChatMessaging = () => {
         language: activeArtifact ? detectLanguage(activeArtifact.path) : null,
         
         // PROJECT CONTEXT
-        has_repository: currentProject?.hasRepository || false,
+        has_repository: currentProject?.has_repository || false,
         current_branch: currentBranch || 'main',
         modified_files_count: modifiedFiles.length,
       }
@@ -79,7 +79,7 @@ export const useChatMessaging = () => {
 
     console.log('[useChatMessaging] Sending message with context:', {
       hasProject: !!currentProject,
-      projectHasRepo: currentProject?.hasRepository ? 'yes' : 'no',
+      projectHasRepo: currentProject?.has_repository ? 'yes' : 'no',
       activeFile: activeArtifact?.path || 'none',
       fileSize: activeArtifact?.content?.length || 0,
       language: activeArtifact ? detectLanguage(activeArtifact.path) : 'none',
