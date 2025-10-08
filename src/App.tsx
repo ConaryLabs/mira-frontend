@@ -7,7 +7,7 @@ import { QuickFileOpen, useQuickFileOpen } from './components/QuickFileOpen';
 import { ProjectsView } from './components/ProjectsView';
 import { useAppState } from './stores/useAppState';
 import { useWebSocketStore } from './stores/useWebSocketStore';
-import { useUIStore } from './stores/useUIStore';
+import { useUIStore, useActiveTab } from './stores/useUIStore';  // ← Added useActiveTab
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import { useMessageHandler } from './hooks/useMessageHandler';
 import { useChatPersistence } from './hooks/useChatPersistence';
@@ -16,7 +16,9 @@ import './App.css';
 
 function App() {
   const { showArtifacts } = useAppState();
-  const { activeTab, setActiveTab } = useUIStore();
+  // PERFORMANCE FIX: Use optimized selector to avoid re-renders on input changes
+  const activeTab = useActiveTab();
+  const setActiveTab = useUIStore(state => state.setActiveTab);
   const connect = useWebSocketStore(state => state.connect);
   const disconnect = useWebSocketStore(state => state.disconnect);
   const connectionState = useWebSocketStore(state => state.connectionState);
