@@ -65,6 +65,7 @@ const KNOWN_DATA_TYPES = new Set([
   'document_processed',
   'document_content',
   'memory_data',
+  'local_directory_attached',  // ← ADDED: Recognize local directory attachments
 ]);
 
 // Messages we don't need to log (too noisy)

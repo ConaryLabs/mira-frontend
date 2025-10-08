@@ -4,7 +4,6 @@
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import type { Project } from '../types';
 import type { Artifact } from '../stores/useChatStore';  // ← Fixed import
 
 export const useWebSocketMessageHandler = () => {
@@ -50,6 +49,15 @@ export const useWebSocketMessageHandler = () => {
         
       case 'status':
         console.log('Status:', message.message);
+        // Check if it's a project deletion confirmation
+        if (message.message && message.message.includes('deleted')) {
+          console.log('Project deleted, refreshing list');
+          send({
+            type: 'project_command',
+            method: 'project.list',
+            params: {}
+          });
+        }
         break;
         
       case 'error':
@@ -132,10 +140,23 @@ export const useWebSocketMessageHandler = () => {
 
       case 'project_created':
         console.log('Project created:', data.project?.name);
-        if (data.project) {
-          const currentProjects = useAppState.getState().projects;
-          setProjects([...currentProjects, data.project]);
-        }
+        // Refresh project list to get the new project
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
+        break;
+
+      case 'local_directory_attached':
+        // ← ADDED: Handle local directory attachment
+        console.log('Local directory attached:', data.path);
+        // Refresh project list to show updated attachment info
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
         break;
 
       case 'git_status':
@@ -162,15 +183,12 @@ export const useWebSocketMessageHandler = () => {
 
       case 'project_updated':
         console.log('Project update notification:', data.project_id);
-        if (data.project) {
-          const currentProjects = useAppState.getState().projects;
-          const updatedProjects = currentProjects.length 
-            ? currentProjects.map((p: Project) =>
-                p.id === data.project.id ? { ...p, ...data.project } : p
-              )
-            : [data.project];
-          setProjects(updatedProjects);
-        }
+        // Refresh project list to get updated data
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
         break;
 
       default:
