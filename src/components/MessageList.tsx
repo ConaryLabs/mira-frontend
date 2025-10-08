@@ -15,6 +15,17 @@ const EmptyState: React.FC = () => (
   </div>
 );
 
+// CRITICAL FIX: Footer component that renders ThinkingIndicator
+const Footer: React.FC<{ isWaiting: boolean }> = ({ isWaiting }) => {
+  if (!isWaiting) return null;
+  
+  return (
+    <div className="px-4 py-2">
+      <ThinkingIndicator />
+    </div>
+  );
+};
+
 export const MessageList: React.FC = () => {
   const messages = useChatStore(state => state.messages);
   const isWaitingForResponse = useChatStore(state => state.isWaitingForResponse);
@@ -85,7 +96,6 @@ export const MessageList: React.FC = () => {
         overscan={200}
         itemContent={(index, message: StoreChatMessage) => (
           <div className="px-4 py-2">
-            {/* FIX: message is now explicitly typed as StoreChatMessage from useChatStore */}
             <ChatMessage message={message} />
           </div>
         )}
@@ -94,6 +104,9 @@ export const MessageList: React.FC = () => {
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={50}
         alignToBottom
+        components={{
+          Footer: () => <Footer isWaiting={isWaitingForResponse} />
+        }}
       />
       
       {/* Scroll to bottom button */}

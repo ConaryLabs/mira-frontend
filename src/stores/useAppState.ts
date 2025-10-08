@@ -1,10 +1,10 @@
 // src/stores/useAppState.ts
-// Import Artifact from useChatStore (unified type)
+// FIXED: Persist artifacts across refresh
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Project } from '../types';
-import type { Artifact } from './useChatStore';  // ← CHANGED: Import from useChatStore
+import type { Artifact } from './useChatStore';
 
 interface AppState {
   // UI State
@@ -34,10 +34,6 @@ interface AppState {
   relevantMemories: any[];
   recentTopics: string[];
   
-  // Personality
-  currentPersona: 'default' | 'professional' | 'chaos';
-  mood: 'playful' | 'focused' | 'frustrated' | null;
-  
   // Actions
   setShowArtifacts: (show: boolean) => void;
   setShowFileExplorer: (show: boolean) => void;
@@ -55,8 +51,6 @@ interface AppState {
   markArtifactApplied: (id: string) => void;
   markArtifactUnapplied: (id: string) => void;
   isArtifactApplied: (id: string) => boolean;
-  setPersona: (persona: 'default' | 'professional' | 'chaos') => void;
-  setMood: (mood: 'playful' | 'focused' | 'frustrated' | null) => void;
 }
 
 export const useAppState = create<AppState>()(
@@ -78,8 +72,6 @@ export const useAppState = create<AppState>()(
       complexityHotspots: [],
       relevantMemories: [],
       recentTopics: [],
-      currentPersona: 'default',
-      mood: null,
 
       // Actions
       setShowArtifacts: (show) => set({ showArtifacts: show }),
@@ -168,17 +160,32 @@ export const useAppState = create<AppState>()(
       isArtifactApplied: (id) => {
         return get().appliedFiles.has(id);
       },
-      
-      setPersona: (persona) => set({ currentPersona: persona }),
-      setMood: (mood) => set({ mood }),
     }),
     {
       name: 'mira-app-state',
-      // Only persist certain parts of state
+      storage: createJSONStorage(() => localStorage, {
+        // Custom serialization to handle Set
+        replacer: (key, value) => {
+          if (value instanceof Set) {
+            return Array.from(value);
+          }
+          return value;
+        },
+        // Custom deserialization to reconstruct Set
+        reviver: (key, value) => {
+          if (key === 'appliedFiles' && Array.isArray(value)) {
+            return new Set(value);
+          }
+          return value;
+        },
+      }),
+      // FIXED: Now persisting artifacts!
       partialize: (state) => ({
         currentProject: state.currentProject,
         projects: state.projects,
-        currentPersona: state.currentPersona,
+        artifacts: state.artifacts,              // ← ADDED
+        activeArtifactId: state.activeArtifactId, // ← ADDED
+        appliedFiles: state.appliedFiles,         // ← ADDED
         // Don't persist UI state or temporary data
       }),
     }
@@ -221,9 +228,4 @@ export const useArtifactState = () => {
     markArtifactUnapplied,
     isArtifactApplied,
   };
-};
-
-export const usePersonalityState = () => {
-  const { currentPersona, mood, setPersona, setMood } = useAppState();
-  return { currentPersona, mood, setPersona, setMood };
 };

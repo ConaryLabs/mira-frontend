@@ -1,9 +1,11 @@
 // src/components/ChatMessage.tsx
+// FIXED: Use batch write_files for Apply All to prevent message loss
+
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';  // ← Only one Artifact now!
+import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
 import { Check, FileCode, AlertCircle, User, Bot } from 'lucide-react';
@@ -14,6 +16,7 @@ interface ChatMessageProps {
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const [appliedArtifacts, setAppliedArtifacts] = useState<Set<string>>(new Set());
+  const [isApplyingAll, setIsApplyingAll] = useState(false);
   const { send } = useWebSocketStore();
   const { currentProject, setShowArtifacts, addArtifact, setActiveArtifact } = useAppState();
   
@@ -38,6 +41,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           content: artifact.content,
         }
       });
+      
+      // Wait a bit for backend to process before marking as applied
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       setAppliedArtifacts(prev => new Set(prev).add(artifact.id));
       console.log('[ChatMessage] Fix applied successfully');
@@ -73,13 +79,52 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
   };
   
+  // FIXED: Use batch write_files for Apply All
   const handleApplyAll = async () => {
-    if (!message.artifacts) return;
+    if (!message.artifacts || !currentProject) return;
     
-    for (const artifact of message.artifacts) {
-      if (!appliedArtifacts.has(artifact.id)) {
-        await handleApplyArtifact(artifact);
+    setIsApplyingAll(true);
+    console.log('[ChatMessage] Applying all artifacts via batch write_files');
+    
+    try {
+      // Filter to only unapplied artifacts
+      const artifactsToApply = message.artifacts.filter(a => !appliedArtifacts.has(a.id));
+      
+      if (artifactsToApply.length === 0) {
+        console.log('[ChatMessage] No artifacts to apply');
+        setIsApplyingAll(false);
+        return;
       }
+      
+      // Use Phase 3 batch write_files tool for efficiency
+      // This sends all files in a single WebSocket message
+      await send({
+        type: 'file_system_command',
+        method: 'write_files',
+        params: {
+          project_id: currentProject.id,
+          files: artifactsToApply.map(artifact => ({
+            path: artifact.path,
+            content: artifact.content
+          }))
+        }
+      });
+      
+      // Wait for backend to process
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Mark all as applied
+      setAppliedArtifacts(prev => {
+        const next = new Set(prev);
+        artifactsToApply.forEach(a => next.add(a.id));
+        return next;
+      });
+      
+      console.log(`[ChatMessage] Applied ${artifactsToApply.length} artifacts successfully`);
+    } catch (error) {
+      console.error('[ChatMessage] Failed to apply all artifacts:', error);
+    } finally {
+      setIsApplyingAll(false);
     }
   };
   
@@ -232,15 +277,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 );
               })}
               
-              {/* Apply All Button */}
+              {/* Apply All Button - FIXED with batch write */}
               {messageArtifacts.length > 1 && messageArtifacts.some(a => a?.changeType) && (
                 <button
                   onClick={handleApplyAll}
-                  className="w-full mt-2 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center justify-center gap-2"
-                  disabled={messageArtifacts.every(a => isArtifactApplied(a.id))}
+                  disabled={isApplyingAll || messageArtifacts.every(a => isArtifactApplied(a.id))}
+                  className="w-full mt-2 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center justify-center gap-2"
                 >
                   <Check className="w-4 h-4" />
-                  Apply All {messageArtifacts.filter(a => a?.changeType && !isArtifactApplied(a.id)).length} Files
+                  {isApplyingAll 
+                    ? 'Applying...' 
+                    : `Apply All ${messageArtifacts.filter(a => a?.changeType && !isArtifactApplied(a.id)).length} Files`
+                  }
                 </button>
               )}
             </div>

@@ -1,10 +1,12 @@
 // src/hooks/useChatPersistence.ts
-// Backend-driven chat persistence only - no localStorage bullshit
+// Backend-driven chat persistence with artifact restoration
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useChatStore } from '../stores/useChatStore';
+import { useArtifactState, useAppState } from '../stores/useAppState';
 import type { ChatMessage } from '../stores/useChatStore';
+import type { Artifact } from '../stores/useChatStore';
 
 const ETERNAL_SESSION_ID = 'peter-eternal'; // Backend's default eternal session
 
@@ -12,6 +14,7 @@ export const useChatPersistence = (connectionState: string) => {
   const send = useWebSocketStore(state => state.send);
   const subscribe = useWebSocketStore(state => state.subscribe);
   const setMessages = useChatStore(state => state.setMessages);
+  const { addArtifact } = useArtifactState();
   const hasLoadedHistory = useRef(false);
 
   const getSessionId = useCallback(() => {
@@ -34,6 +37,7 @@ export const useChatPersistence = (connectionState: string) => {
     }
 
     const validMessages: ChatMessage[] = [];
+    let hasArtifacts = false;
     
     for (const [index, memory] of memories.entries()) {
       if (!memory || !memory.content) continue;
@@ -66,6 +70,33 @@ export const useChatPersistence = (connectionState: string) => {
             contains_code: memory.contains_code,
           }
         };
+
+        // Extract artifacts from memory if present
+        // Backend stores artifacts in analysis.artifacts
+        const artifacts = memory.analysis?.artifacts || memory.artifacts;
+        if (artifacts && Array.isArray(artifacts) && artifacts.length > 0) {
+          console.log(`[ChatPersistence] Found ${artifacts.length} artifact(s) in memory ${memory.id}`);
+          
+          // Reconstruct artifact objects
+          const reconstructedArtifacts: Artifact[] = artifacts.map((art: any) => ({
+            id: art.id || `artifact-${Date.now()}-${Math.random()}`,
+            title: art.title || 'Untitled',
+            content: art.content || '',
+            language: art.language || 'text',
+            path: art.path || null,
+            timestamp: timestamp,
+          }));
+
+          // Add artifacts to both the message and the artifact store
+          message.artifacts = reconstructedArtifacts;
+          
+          // Add each artifact to the global store
+          reconstructedArtifacts.forEach(artifact => {
+            addArtifact(artifact);
+          });
+          
+          hasArtifacts = true;
+        }
         
         validMessages.push(message);
       } catch (error) {
@@ -85,8 +116,17 @@ export const useChatPersistence = (connectionState: string) => {
       });
 
     console.log(`[ChatPersistence] Converted ${memories.length} memories to ${sortedMessages.length} messages`);
+    
+    // If we restored artifacts, open the panel
+    if (hasArtifacts) {
+      console.log('[ChatPersistence] Artifacts restored, opening panel');
+      setTimeout(() => {
+        useAppState.getState().setShowArtifacts(true);
+      }, 500);
+    }
+    
     return sortedMessages;
-  }, []);
+  }, [addArtifact]);
 
   // Handle incoming memory data from backend
   const handleMemoryData = useCallback((data: any) => {

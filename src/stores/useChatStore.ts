@@ -7,10 +7,12 @@ import { persist } from 'zustand/middleware';
 // ===== MINIMAL UNIFIED ARTIFACT =====
 export interface Artifact {
   id: string;
+  title?: string;      // Display name (optional, path is fallback)
   path: string;        // File path - primary identifier
   content: string;     // File content
   language?: string;   // Syntax highlighting (inferred from path)
   changeType?: 'primary' | 'import' | 'type' | 'cascade';  // For error-to-fix workflow
+  timestamp?: number;  // When artifact was created
 }
 
 export interface ChatMessage {

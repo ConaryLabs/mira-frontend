@@ -1,4 +1,6 @@
 // src/components/MonacoEditor.tsx
+// FIXED: Better font sizing and readability
+
 import React from 'react';
 import Editor from '@monaco-editor/react';
 
@@ -18,15 +20,38 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   height = '100%'
 }) => {
   const defaultOptions = {
-    minimap: { enabled: false },
+    // Editor behavior
+    minimap: { enabled: true, maxColumn: 80 }, // Enable minimap for navigation
     lineNumbers: 'on',
-    fontSize: 14,
-    fontFamily: 'JetBrains Mono, Consolas, "Courier New", monospace',
-    wordWrap: 'on',
     scrollBeyondLastLine: false,
     automaticLayout: true,
     tabSize: 2,
     insertSpaces: true,
+    wordWrap: 'on',
+    wrappingIndent: 'indent',
+    
+    // READABILITY IMPROVEMENTS
+    fontSize: 16, // Increased from 14 for better readability
+    lineHeight: 24, // Better line spacing
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace",
+    fontLigatures: true, // Enable ligatures if font supports it
+    
+    // Padding and spacing
+    padding: { top: 16, bottom: 16 },
+    lineDecorationsWidth: 10,
+    lineNumbersMinChars: 4,
+    
+    // Visual improvements
+    renderLineHighlight: 'all',
+    renderWhitespace: 'selection',
+    cursorStyle: 'line',
+    cursorBlinking: 'smooth',
+    smoothScrolling: true,
+    
+    // Accessibility
+    accessibilitySupport: 'auto',
+    
+    // Override with any user-specified options
     ...options
   };
 
@@ -37,8 +62,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       value={value}
       onChange={onChange}
       options={defaultOptions}
-      theme="vs-dark" // TODO: respect system theme
-      loading={<div className="flex items-center justify-center h-full">Loading editor...</div>}
+      theme="vs-dark"
+      loading={
+        <div className="flex items-center justify-center h-full">
+          <div className="text-gray-400">Loading editor...</div>
+        </div>
+      }
     />
   );
 };
