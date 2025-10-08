@@ -35,6 +35,10 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   const send = useWebSocketStore(state => state.send);
   const subscribe = useWebSocketStore(state => state.subscribe);
   const { currentProject } = useAppState();
+  
+  // PERFORMANCE FIX: Extract projectId to stabilize dependencies
+  const projectId = currentProject?.id;
+  const projectName = currentProject?.name;
 
   // Subscribe to WebSocket messages
   useEffect(() => {
@@ -59,15 +63,15 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     return unsubscribe;
   }, [subscribe, isOpen]);
 
-  // Load files when modal opens
+  // Load files when modal opens - PERFORMANCE FIX: Use projectId instead of currentProject
   useEffect(() => {
     console.log('QuickFileOpen: Modal state changed:', {
       isOpen,
-      hasProject: !!currentProject,
-      projectId: currentProject?.id
+      hasProject: !!projectId,
+      projectId
     });
     
-    if (isOpen && currentProject) {
+    if (isOpen && projectId) {
       loadProjectFiles();
     }
     
@@ -80,15 +84,15 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
       setSelectedIndex(0);
       setLoading(false);
     }
-  }, [isOpen, currentProject]);
+  }, [isOpen, projectId]);  // ← CRITICAL FIX: Use projectId, not currentProject object
 
   const loadProjectFiles = async () => {
-    if (!currentProject) {
+    if (!projectId) {
       console.log('No current project for file loading');
       return;
     }
 
-    console.log('Loading files for project:', currentProject.name);
+    console.log('Loading files for project:', projectName);
     setLoading(true);
     
     try {
@@ -96,7 +100,7 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
         type: 'git_command',
         method: 'git.tree',
         params: { 
-          project_id: currentProject.id,
+          project_id: projectId,
           recursive: true 
         }
       });
@@ -150,12 +154,12 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
 
   const handleFileSelect = async (file: FileNode) => {
     console.log('File selected:', file.path);
-    console.log('Project ID:', currentProject?.id);
+    console.log('Project ID:', projectId);
     console.log('Requesting file content from backend...');
     
     try {
       const requestParams = {
-        project_id: currentProject?.id,
+        project_id: projectId,
         file_path: file.path
       };
       

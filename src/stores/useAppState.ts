@@ -98,11 +98,22 @@ export const useAppState = create<AppState>()(
       })),
       
       setProjects: (projectsOrUpdater) => {
-        if (typeof projectsOrUpdater === 'function') {
-          set((state) => ({ projects: projectsOrUpdater(state.projects) }));
-        } else {
-          set({ projects: projectsOrUpdater });
-        }
+        set((state) => {
+          const newProjects = typeof projectsOrUpdater === 'function' 
+            ? projectsOrUpdater(state.projects)
+            : projectsOrUpdater;
+          
+          // CRITICAL FIX: Sync currentProject reference with updated projects array
+          // This prevents cascading re-renders from reference instability
+          const updatedCurrentProject = state.currentProject 
+            ? newProjects.find(p => p.id === state.currentProject?.id) || state.currentProject
+            : null;
+          
+          return {
+            projects: newProjects,
+            currentProject: updatedCurrentProject  // Keep reference in sync
+          };
+        });
       },
       
       updateGitStatus: (status) => set({ gitStatus: status }),

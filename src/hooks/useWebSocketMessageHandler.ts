@@ -174,6 +174,22 @@ export const useWebSocketMessageHandler = () => {
         console.log('File tree received:', data.tree?.length || 0, 'items');
         break;
 
+      // DOCUMENT PROCESSING MESSAGES - handled by DocumentUpload component
+      case 'document_processing_started':
+        console.log('Document processing started:', data.file_name);
+        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
+        break;
+        
+      case 'document_processing_progress':
+        console.log('Document processing progress:', data.progress);
+        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
+        break;
+        
+      case 'document_processed':
+        console.log('Document processed successfully:', data.file_name);
+        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
+        break;
+
       case 'document_list':
       case 'document_search_results':
       case 'document_content':
