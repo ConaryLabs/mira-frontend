@@ -44,7 +44,7 @@ interface WebSocketStore {
   scheduleReconnect: () => void;
 }
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3102/ws';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws';
 
 // Message types we explicitly handle (won't log as unhandled)
 const KNOWN_MESSAGE_TYPES = new Set([

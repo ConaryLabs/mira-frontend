@@ -11,7 +11,7 @@ import { useWebSocketStore } from '../stores/useWebSocketStore';
 import type { Project, DocumentMetadata, DocumentSearchResult } from '../types';
 
 export const ProjectsView: React.FC = () => {
-  const { projects, currentProject, setCurrentProject } = useAppState();
+  const { projects, currentProject, setCurrentProject, setProjects } = useAppState();
   const { send, subscribe } = useWebSocketStore();
   
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -49,6 +49,28 @@ export const ProjectsView: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   
+  // ===== LOAD PROJECTS ON MOUNT =====
+  // CRITICAL FIX: Fetch actual projects from backend on mount to sync with DB
+  // This prevents ghost projects from showing up after DB reset
+  useEffect(() => {
+    console.log('ProjectsView: Loading projects from backend');
+    
+    send({
+      type: 'project_command',
+      method: 'project.list',
+      params: {}
+    });
+
+    const unsubscribe = subscribe('projects-initial-load', (message) => {
+      if (message.type === 'data' && message.data?.type === 'project_list') {
+        console.log('ProjectsView: Received projects from backend:', message.data.projects?.length || 0);
+        setProjects(message.data.projects || []);
+      }
+    });
+
+    return unsubscribe;
+  }, [send, subscribe, setProjects]);
+  
   // ===== PROJECT HANDLERS =====
   
   const handleCreate = async () => {
@@ -68,6 +90,15 @@ export const ProjectsView: React.FC = () => {
       setNewProjectName('');
       setNewProjectDescription('');
       setShowCreateForm(false);
+      
+      // Refresh project list
+      setTimeout(() => {
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
+      }, 100);
     } catch (error) {
       console.error('Create failed:', error);
     } finally {
@@ -77,17 +108,31 @@ export const ProjectsView: React.FC = () => {
   
   const handleDelete = async (projectId: string) => {
     setDeleting(projectId);
+    
     try {
       await send({
         type: 'project_command',
         method: 'project.delete',
         params: { id: projectId }
       });
-      setConfirmDelete(null);
+      
+      if (currentProject?.id === projectId) {
+        setCurrentProject(null);
+      }
+      
+      // Refresh project list
+      setTimeout(() => {
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
+      }, 100);
     } catch (error) {
       console.error('Delete failed:', error);
     } finally {
       setDeleting(null);
+      setConfirmDelete(null);
     }
   };
   
@@ -109,19 +154,19 @@ export const ProjectsView: React.FC = () => {
         }
       });
       
-      setLocalDirectoryPath('');
       setShowAttachLocal(null);
+      setLocalDirectoryPath('');
       
-      setTimeout(async () => {
-        await send({
+      // Refresh project list
+      setTimeout(() => {
+        send({
           type: 'project_command',
           method: 'project.list',
           params: {}
         });
       }, 100);
     } catch (error) {
-      console.error('Attach local directory failed:', error);
-      alert('Failed to attach directory. Please check the path and try again.');
+      console.error('Attach failed:', error);
     } finally {
       setAttaching(false);
     }
@@ -131,21 +176,19 @@ export const ProjectsView: React.FC = () => {
   
   useEffect(() => {
     const unsubscribe = subscribe('doc-upload', (message) => {
-      if (message.type === 'data' && message.data?.type === 'document_processing_progress') {
-        setUploadProgress(message.data.progress * 100);
-        setUploadStatus('uploading');
+      if (message.type === 'data' && message.data?.type === 'upload_progress') {
+        setUploadProgress(message.data.progress || 0);
       }
       
-      if (message.type === 'data' && message.data?.type === 'document_processed') {
+      if (message.type === 'data' && message.data?.type === 'document_uploaded') {
         setUploadStatus('success');
-        setUploadProgress(100);
+        setUploading(false);
+        setDocRefreshKey(prev => prev + 1);
         
         setTimeout(() => {
-          setUploading(false);
-          setUploadProgress(0);
-          setUploadFileName('');
           setUploadStatus('idle');
-          setDocRefreshKey(prev => prev + 1);
+          setUploadFileName('');
+          setUploadProgress(0);
         }, 2000);
       }
       
@@ -158,63 +201,35 @@ export const ProjectsView: React.FC = () => {
     
     return unsubscribe;
   }, [subscribe, uploading]);
-  
-  const validateFile = (file: File): string | null => {
-    const validExtensions = ['.pdf', '.docx', '.doc', '.txt', '.md'];
-    const extension = '.' + file.name.split('.').pop()?.toLowerCase();
-    
-    if (!validExtensions.includes(extension)) {
-      return `Invalid file type. Accepted formats: ${validExtensions.join(', ')}`;
-    }
-    
-    if (file.size > 50 * 1024 * 1024) {
-      return 'File too large. Maximum size is 50MB';
-    }
-    
-    return null;
-  };
-  
-  const handleFileSelect = useCallback(async (file: File) => {
+
+  const handleFileSelect = useCallback((file: File) => {
     if (!currentProject) return;
     
-    const validationError = validateFile(file);
-    if (validationError) {
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
       setUploadStatus('error');
-      setUploadError(validationError);
-      setTimeout(() => {
-        setUploadStatus('idle');
-        setUploadError('');
-      }, 3000);
+      setUploadError('File size exceeds 50MB limit');
       return;
     }
     
-    setUploading(true);
-    setUploadProgress(0);
+    const validTypes = ['.pdf', '.docx', '.doc', '.txt', '.md'];
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (!validTypes.includes(ext)) {
+      setUploadStatus('error');
+      setUploadError('Unsupported file type. Use PDF, DOCX, TXT, or MD');
+      return;
+    }
+    
     setUploadFileName(file.name);
     setUploadStatus('uploading');
-    setUploadError('');
-
+    setUploading(true);
+    setUploadProgress(0);
+    
     const reader = new FileReader();
-    
-    reader.onerror = () => {
-      setUploadStatus('error');
-      setUploadError('Failed to read file');
-      setUploading(false);
-    };
-    
     reader.onload = async (e) => {
       try {
-        const result = e.target?.result?.toString();
-        if (!result) {
-          throw new Error('Failed to read file content');
-        }
+        const base64 = (e.target?.result as string).split(',')[1];
         
-        const base64 = result.split(',')[1];
-        
-        if (!base64) {
-          throw new Error('Invalid file content');
-        }
-
         await send({
           type: 'document_command',
           method: 'documents.upload',
@@ -225,7 +240,6 @@ export const ProjectsView: React.FC = () => {
           },
         });
       } catch (error) {
-        console.error('Upload error:', error);
         setUploadStatus('error');
         setUploadError(error instanceof Error ? error.message : 'Upload failed');
         setUploading(false);
@@ -387,87 +401,58 @@ export const ProjectsView: React.FC = () => {
   
   const formatDate = (timestamp: string | number) => {
     const date = typeof timestamp === 'string' 
-      ? new Date(timestamp)
+      ? new Date(timestamp) 
       : new Date(timestamp * 1000);
-    
-    if (isNaN(date.getTime())) {
-      console.warn('Invalid date:', timestamp);
-      return 'Invalid date';
-    }
-    
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
   };
   
-  const formatSize = (bytes: number): string => {
+  const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
-
-  const getFileIcon = (fileName: string) => {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    const color = ext === 'pdf' ? 'text-red-400' 
-      : ext === 'docx' || ext === 'doc' ? 'text-blue-400'
-      : ext === 'md' ? 'text-purple-400'
-      : 'text-gray-400';
-    
-    return <FileText className={`w-5 h-5 ${color}`} />;
-  };
-
-  const getScoreColor = (score: number): string => {
+  
+  const getScoreColor = (score: number) => {
     if (score >= 0.8) return 'text-green-400';
     if (score >= 0.6) return 'text-blue-400';
     if (score >= 0.4) return 'text-yellow-400';
-    return 'text-gray-400';
+    return 'text-slate-400';
   };
-
-  const getScoreLabel = (score: number): string => {
-    if (score >= 0.8) return 'Excellent match';
-    if (score >= 0.6) return 'Good match';
-    if (score >= 0.4) return 'Fair match';
-    return 'Weak match';
+  
+  const getScoreLabel = (score: number) => {
+    if (score >= 0.8) return 'Excellent';
+    if (score >= 0.6) return 'Good';
+    if (score >= 0.4) return 'Fair';
+    return 'Weak';
   };
-
-  const highlightQuery = (content: string, query: string): React.ReactNode => {
-    const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  
+  const highlightQuery = (text: string, query: string) => {
+    if (!query.trim()) return text;
     
-    if (terms.length === 0) {
-      return content;
-    }
-
-    const parts: { text: string; highlight: boolean }[] = [];
+    const parts: Array<{ text: string; highlight: boolean }> = [];
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
     let lastIndex = 0;
-    const lowerContent = content.toLowerCase();
-
-    for (const term of terms) {
-      let index = lowerContent.indexOf(term, lastIndex);
-      while (index !== -1) {
-        if (index > lastIndex) {
-          parts.push({ text: content.slice(lastIndex, index), highlight: false });
-        }
-        parts.push({ text: content.slice(index, index + term.length), highlight: true });
-        lastIndex = index + term.length;
-        index = lowerContent.indexOf(term, lastIndex);
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({ text: text.slice(lastIndex, match.index), highlight: false });
       }
+      parts.push({ text: match[0], highlight: true });
+      lastIndex = match.index + match[0].length;
     }
-
-    if (lastIndex < content.length) {
-      parts.push({ text: content.slice(lastIndex), highlight: false });
+    
+    if (lastIndex < text.length) {
+      parts.push({ text: text.slice(lastIndex), highlight: false });
     }
-
+    
     return (
       <>
-        {parts.map((part, i) => 
+        {parts.map((part, i) =>
           part.highlight ? (
             <mark key={i} className="bg-yellow-400/30 text-slate-100 px-0.5 rounded">
               {part.text}
@@ -538,8 +523,8 @@ export const ProjectsView: React.FC = () => {
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="What's this project about?"
-                  rows={3}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                  rows={3}
                 />
               </div>
               
@@ -547,7 +532,7 @@ export const ProjectsView: React.FC = () => {
                 <button
                   onClick={handleCreate}
                   disabled={!newProjectName.trim() || creating}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
                 >
                   {creating ? 'Creating...' : 'Create Project'}
                 </button>
@@ -567,20 +552,20 @@ export const ProjectsView: React.FC = () => {
         </div>
       )}
       
-      {/* Delete Confirmation Modal */}
+      {/* Confirm Delete Modal */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-red-400 mb-4">Delete Project?</h2>
+            <h2 className="text-xl font-bold text-slate-100 mb-4">Delete Project?</h2>
             <p className="text-slate-300 mb-6">
-              This will permanently delete the project. This action cannot be undone.
+              This will permanently delete the project and all its data. This action cannot be undone.
             </p>
             
             <div className="flex gap-3">
               <button
                 onClick={() => handleDelete(confirmDelete)}
                 disabled={deleting === confirmDelete}
-                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors"
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
               >
                 {deleting === confirmDelete ? 'Deleting...' : 'Delete'}
               </button>
@@ -604,17 +589,17 @@ export const ProjectsView: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Directory Path *
+                  Directory Path
                 </label>
                 <input
                   type="text"
                   value={localDirectoryPath}
                   onChange={(e) => setLocalDirectoryPath(e.target.value)}
-                  placeholder="/absolute/path/to/your/project"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  placeholder="/path/to/your/project"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && localDirectoryPath.trim()) {
+                    if (e.key === 'Enter' && !e.shiftKey && localDirectoryPath.trim()) {
                       e.preventDefault();
                       handleAttachLocal();
                     }
@@ -625,15 +610,15 @@ export const ProjectsView: React.FC = () => {
                   }}
                 />
                 <p className="text-xs text-slate-500 mt-2">
-                  Enter the absolute path to your project directory
+                  Must be an absolute path on the server filesystem
                 </p>
               </div>
               
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3">
                 <button
                   onClick={handleAttachLocal}
                   disabled={!localDirectoryPath.trim() || attaching}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
                 >
                   {attaching ? 'Attaching...' : 'Attach Directory'}
                 </button>
@@ -704,7 +689,7 @@ export const ProjectsView: React.FC = () => {
               >
                 <div className="flex items-center gap-2">
                   <FileText size={16} />
-                  Documents
+                  Manage
                 </div>
               </button>
               <button
@@ -726,167 +711,151 @@ export const ProjectsView: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-6">
               {/* Upload Tab */}
               {documentsTab === 'upload' && (
-                <div className="max-w-2xl mx-auto">
+                <div>
                   <div
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
-                    className={`p-8 border-2 border-dashed rounded-lg transition-colors ${
-                      uploadStatus === 'success' 
-                        ? 'border-green-500 bg-green-500/10' 
-                        : uploadStatus === 'error'
-                        ? 'border-red-500 bg-red-500/10'
-                        : uploading
-                        ? 'border-blue-500 bg-blue-500/10'
-                        : 'border-slate-600 hover:border-blue-500 bg-slate-800/50'
-                    }`}
+                    className={`
+                      border-2 border-dashed rounded-lg p-12 text-center transition-colors
+                      ${uploading ? 'border-blue-500 bg-blue-500/5' : 'border-slate-600 hover:border-slate-500'}
+                    `}
                   >
-                    <div className="flex flex-col items-center">
-                      {uploadStatus === 'success' ? (
-                        <>
-                          <CheckCircle className="w-16 h-16 text-green-500 mb-4" />
-                          <p className="text-green-400 font-medium text-lg">Upload complete!</p>
-                        </>
-                      ) : uploadStatus === 'error' ? (
-                        <>
-                          <XCircle className="w-16 h-16 text-red-500 mb-4" />
-                          <p className="text-red-400 font-medium text-lg">{uploadError}</p>
-                        </>
-                      ) : (
-                        <>
-                          <UploadIcon className="w-16 h-16 text-slate-400 mb-6" />
-                          
-                          <input
-                            type="file"
-                            accept=".pdf,.docx,.doc,.txt,.md"
-                            onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                            disabled={uploading}
-                            className="hidden"
-                            id="file-upload-modal"
-                          />
-                          
-                          <label
-                            htmlFor="file-upload-modal"
-                            className={`px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition-colors font-medium ${
-                              uploading ? 'opacity-50 cursor-not-allowed' : ''
-                            }`}
-                          >
-                            {uploading ? 'Uploading...' : 'Choose Document'}
-                          </label>
-                          
-                          <p className="mt-4 text-sm text-slate-400">
-                            PDF, DOCX, TXT, or MD files (max 50MB)
-                          </p>
-                          <p className="text-xs text-slate-500 mt-2">
-                            Or drag and drop a file here
-                          </p>
-                        </>
-                      )}
-                    </div>
+                    {uploadStatus === 'idle' && (
+                      <>
+                        <UploadIcon className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-100 mb-2">
+                          Drop file here or click to browse
+                        </h3>
+                        <p className="text-sm text-slate-400 mb-4">
+                          PDF, DOCX, TXT, MD • Max 50MB
+                        </p>
+                        <input
+                          type="file"
+                          id="file-input"
+                          accept=".pdf,.docx,.doc,.txt,.md"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFileSelect(file);
+                          }}
+                          className="hidden"
+                        />
+                        <button
+                          onClick={() => document.getElementById('file-input')?.click()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium transition-colors"
+                        >
+                          Choose File
+                        </button>
+                      </>
+                    )}
                     
-                    {uploading && uploadStatus === 'uploading' && (
-                      <div className="mt-8">
-                        <div className="flex justify-between text-sm text-slate-300 mb-2">
-                          <span className="truncate max-w-[300px]">{uploadFileName}</span>
-                          <span>{uploadProgress.toFixed(0)}%</span>
-                        </div>
-                        <div className="w-full bg-slate-700 rounded-full h-2">
+                    {uploadStatus === 'uploading' && (
+                      <>
+                        <Sparkles className="w-16 h-16 text-blue-400 mx-auto mb-4 animate-pulse" />
+                        <h3 className="text-lg font-semibold text-slate-100 mb-2">
+                          Uploading {uploadFileName}
+                        </h3>
+                        <div className="w-full max-w-md mx-auto bg-slate-700 rounded-full h-2 mb-2">
                           <div
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            className="bg-blue-500 h-2 rounded-full transition-all"
                             style={{ width: `${uploadProgress}%` }}
                           />
                         </div>
-                      </div>
+                        <p className="text-sm text-slate-400">{uploadProgress}%</p>
+                      </>
                     )}
-                  </div>
-                  
-                  <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                    <h3 className="text-sm font-medium text-slate-300 mb-2">Supported Formats</h3>
-                    <ul className="text-xs text-slate-400 space-y-1">
-                      <li>• PDF documents (.pdf)</li>
-                      <li>• Microsoft Word (.docx, .doc)</li>
-                      <li>• Plain text (.txt)</li>
-                      <li>• Markdown (.md)</li>
-                    </ul>
+                    
+                    {uploadStatus === 'success' && (
+                      <>
+                        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-100 mb-2">
+                          Upload Complete!
+                        </h3>
+                        <p className="text-sm text-slate-400">
+                          {uploadFileName} has been processed and indexed
+                        </p>
+                      </>
+                    )}
+                    
+                    {uploadStatus === 'error' && (
+                      <>
+                        <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-100 mb-2">
+                          Upload Failed
+                        </h3>
+                        <p className="text-sm text-red-400 mb-4">{uploadError}</p>
+                        <button
+                          onClick={() => {
+                            setUploadStatus('idle');
+                            setUploadError('');
+                          }}
+                          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 font-medium transition-colors"
+                        >
+                          Try Again
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
               
               {/* List Tab */}
               {documentsTab === 'list' && (
-                <div className="max-w-4xl mx-auto">
+                <div>
                   {loadingDocs ? (
                     <div className="flex items-center justify-center py-12">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                      <div className="text-slate-400">Loading documents...</div>
                     </div>
                   ) : documents.length === 0 ? (
-                    <div className="text-center py-12 bg-slate-800/50 rounded-lg border border-slate-700">
-                      <FileText className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400 text-lg mb-2">No documents uploaded yet</p>
-                      <p className="text-slate-500 text-sm">Switch to the Upload tab to add documents</p>
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                      <FileText className="w-16 h-16 mb-4 text-slate-600" />
+                      <p>No documents yet</p>
+                      <p className="text-sm">Upload a document to get started</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {documents.map((doc) => (
-                        <div 
-                          key={doc.id} 
-                          className="p-4 border border-slate-700 rounded-lg hover:bg-slate-800/50 transition-colors bg-slate-800/30"
+                        <div
+                          key={doc.id}
+                          className="flex items-start justify-between p-4 bg-slate-700/50 rounded-lg border border-slate-600 hover:border-slate-500 transition-colors"
                         >
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-3 flex-1 min-w-0">
-                              {getFileIcon(doc.file_name)}
-                              
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-slate-100 truncate" title={doc.file_name}>
-                                  {doc.file_name}
-                                </div>
-                                
-                                <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                                  <span>{formatSize(doc.size_bytes)}</span>
-                                  
-                                  {doc.word_count != null && (
-                                    <>
-                                      <span>•</span>
-                                      <span>{doc.word_count.toLocaleString()} words</span>
-                                    </>
-                                  )}
-                                  
-                                  {doc.chunk_count != null && (
-                                    <>
-                                      <span>•</span>
-                                      <span>{doc.chunk_count} chunks</span>
-                                    </>
-                                  )}
-                                </div>
-                                
-                                <div className="flex items-center gap-1 text-xs text-slate-600 mt-1">
-                                  <Calendar className="w-3 h-3" />
-                                  <span>{formatDate(doc.created_at)}</span>
-                                </div>
-                              </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <FileText className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                              <h3 className="font-medium text-slate-100 truncate">
+                                {doc.file_name}
+                              </h3>
                             </div>
                             
-                            <div className="flex items-center gap-2 ml-4">
-                              <button
-                                onClick={() => handleDownloadDoc(doc.id, doc.file_name)}
-                                className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors"
-                                title="Download document"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-                              
-                              <button
-                                onClick={() => handleDeleteDoc(doc.id, doc.file_name)}
-                                disabled={deletingDoc === doc.id}
-                                className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
-                                title="Delete document"
-                              >
-                                {deletingDoc === doc.id ? (
-                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
-                                ) : (
-                                  <Trash2 className="w-4 h-4" />
-                                )}
-                              </button>
+                            <div className="flex items-center gap-4 text-xs text-slate-400">
+                              <span>{formatFileSize(doc.size_bytes)}</span>
+                              <span>•</span>
+                              <span>{doc.word_count?.toLocaleString() || 0} words</span>
+                              <span>•</span>
+                              <span>{doc.chunk_count} chunks</span>
+                              <span>•</span>
+                              <div className="flex items-center gap-1">
+                                <Calendar size={12} />
+                                {formatDate(doc.created_at)}
+                              </div>
                             </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 ml-4">
+                            <button
+                              onClick={() => handleDownloadDoc(doc.id, doc.file_name)}
+                              className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"
+                              title="Download"
+                            >
+                              <Download size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDoc(doc.id, doc.file_name)}
+                              disabled={deletingDoc === doc.id}
+                              className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors disabled:opacity-50"
+                              title="Delete"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -897,120 +866,95 @@ export const ProjectsView: React.FC = () => {
               
               {/* Search Tab */}
               {documentsTab === 'search' && (
-                <div className="max-w-4xl mx-auto">
-                  <div className="flex gap-2 mb-6">
-                    <div className="flex-1 relative">
-                      <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <div>
+                  <div className="mb-6">
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyPress={handleSearchKeyPress}
                         placeholder="Search across all documents..."
-                        className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                        disabled={searching}
+                        className="flex-1 px-4 py-3 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                       />
+                      <button
+                        onClick={handleSearch}
+                        disabled={searching || !searchQuery.trim()}
+                        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
+                      >
+                        {searching ? 'Searching...' : 'Search'}
+                      </button>
                     </div>
-                    <button
-                      onClick={handleSearch}
-                      disabled={searching || !searchQuery.trim()}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 font-medium"
-                    >
-                      {searching ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                          Searching...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Search
-                        </>
-                      )}
-                    </button>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Semantic search finds relevant content based on meaning, not just keywords
+                    </p>
                   </div>
+                  
+                  {!hasSearched ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                      <SearchIcon className="w-16 h-16 mb-4 text-slate-600" />
+                      <p>Enter a query to search your documents</p>
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                      <SearchIcon className="w-16 h-16 mb-4 text-slate-600" />
+                      <p>No results found for "{searchQuery}"</p>
+                      <p className="text-sm mt-2">Try different keywords or a broader query</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="text-sm text-slate-400 mb-4">
+                        Found {searchResults.length} relevant {searchResults.length === 1 ? 'result' : 'results'}
+                      </div>
+                      
+                      {searchResults.map((result, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 bg-slate-700/50 rounded-lg border border-slate-600"
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                              <span className="font-medium text-sm text-blue-400 truncate" title={result.file_name}>
+                                {result.file_name}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-3 text-xs text-slate-500 ml-4">
+                              <span className={`font-medium ${getScoreColor(result.score)}`}>
+                                {(result.score * 100).toFixed(0)}%
+                              </span>
+                              <span className="text-slate-600">•</span>
+                              <span>Chunk {result.chunk_index + 1}</span>
+                            </div>
+                          </div>
 
-                  {hasSearched && !searching && (
-                    <div className="text-sm text-slate-400 mb-4">
-                      Found {searchResults.length} {searchResults.length === 1 ? 'result' : 'results'} 
-                      {searchResults.length > 0 && ' (semantic search)'}
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2 text-xs">
+                              <div className="flex-1 bg-slate-700 rounded-full h-1">
+                                <div
+                                  className={`h-1 rounded-full transition-all ${
+                                    result.score >= 0.8 ? 'bg-green-500' :
+                                    result.score >= 0.6 ? 'bg-blue-500' :
+                                    result.score >= 0.4 ? 'bg-yellow-500' :
+                                    'bg-slate-500'
+                                  }`}
+                                  style={{ width: `${result.score * 100}%` }}
+                                />
+                              </div>
+                              <span className={`${getScoreColor(result.score)} font-medium`}>
+                                {getScoreLabel(result.score)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-sm text-slate-300 leading-relaxed">
+                            {highlightQuery(result.content, searchQuery)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-
-                  <div className="space-y-3">
-                    {!hasSearched && !searching && (
-                      <div className="text-center py-12 bg-slate-800/50 rounded-lg border border-slate-700">
-                        <Sparkles className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                        <p className="text-slate-400 text-lg mb-2">Semantic search across your documents</p>
-                        <p className="text-slate-500 text-sm">
-                          Try searching for concepts, not just keywords
-                        </p>
-                      </div>
-                    )}
-
-                    {hasSearched && !searching && searchResults.length === 0 && searchQuery && (
-                      <div className="text-center py-12 bg-slate-800/50 rounded-lg border border-slate-700">
-                        <SearchIcon className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                        <p className="text-slate-400 text-lg mb-2">No results found for "{searchQuery}"</p>
-                        <p className="text-slate-500 text-sm">
-                          Try different keywords or upload more documents
-                        </p>
-                      </div>
-                    )}
-
-                    {searching && (
-                      <div className="flex items-center justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                      </div>
-                    )}
-
-                    {searchResults.map((result, i) => (
-                      <div 
-                        key={`${result.document_id}-${result.chunk_index}-${i}`}
-                        className="p-4 border border-slate-700 rounded-lg hover:bg-slate-800/50 transition-colors bg-slate-800/30"
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                            <span className="font-medium text-sm text-blue-400 truncate" title={result.file_name}>
-                              {result.file_name}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-3 text-xs text-slate-500 ml-4">
-                            <span className={`font-medium ${getScoreColor(result.score)}`}>
-                              {(result.score * 100).toFixed(0)}%
-                            </span>
-                            <span className="text-slate-600">•</span>
-                            <span>Chunk {result.chunk_index + 1}</span>
-                          </div>
-                        </div>
-
-                        <div className="mb-3">
-                          <div className="flex items-center gap-2 text-xs">
-                            <div className="flex-1 bg-slate-700 rounded-full h-1">
-                              <div
-                                className={`h-1 rounded-full transition-all ${
-                                  result.score >= 0.8 ? 'bg-green-500' :
-                                  result.score >= 0.6 ? 'bg-blue-500' :
-                                  result.score >= 0.4 ? 'bg-yellow-500' :
-                                  'bg-slate-500'
-                                }`}
-                                style={{ width: `${result.score * 100}%` }}
-                              />
-                            </div>
-                            <span className={`${getScoreColor(result.score)} font-medium`}>
-                              {getScoreLabel(result.score)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="text-sm text-slate-300 leading-relaxed">
-                          {highlightQuery(result.content, searchQuery)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>

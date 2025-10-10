@@ -1,5 +1,5 @@
 // src/stores/useAppState.ts
-// FIXED: Persist artifacts across refresh
+// FIXED: Persist artifacts across refresh + de-dupe artifacts by id/path
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -122,17 +122,38 @@ export const useAppState = create<AppState>()(
       
       clearModifiedFiles: () => set({ modifiedFiles: [] }),
       
-      addArtifact: (artifact) => set((state) => ({
-        artifacts: [...state.artifacts, artifact],
-        activeArtifactId: artifact.id,
-        showArtifacts: true
-      })),
+      // De-dupe artifacts by id OR path. If an artifact with same id or path exists,
+      // update it in place and focus it instead of appending a duplicate.
+      addArtifact: (artifact) => set((state) => {
+        const idx = state.artifacts.findIndex(a => 
+          a.id === artifact.id || (!!artifact.path && a.path === artifact.path)
+        );
+
+        if (idx !== -1) {
+          const updated = [...state.artifacts];
+          // Preserve existing id to keep references stable, merge updates
+          updated[idx] = { ...updated[idx], ...artifact, id: updated[idx].id };
+          return {
+            artifacts: updated,
+            activeArtifactId: updated[idx].id,
+            showArtifacts: true,
+          };
+        }
+
+        return {
+          artifacts: [...state.artifacts, artifact],
+          activeArtifactId: artifact.id,
+          showArtifacts: true,
+        };
+      }),
       
       setActiveArtifact: (id) => set({ activeArtifactId: id }),
       
       updateArtifact: (id, updates) => set((state) => ({
         artifacts: state.artifacts.map(a => 
-          a.id === id ? { ...a, ...updates } : a
+          a.id === id || (!!updates.path && a.path === updates.path)
+            ? { ...a, ...updates }
+            : a
         )
       })),
       
