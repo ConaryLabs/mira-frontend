@@ -1,5 +1,5 @@
 // src/stores/useChatStore.ts
-// SCORCHED EARTH: Minimal, clean Artifact type - no backward compatibility bullshit
+// HARDENED: Message deduplication for reconnect safety
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -36,9 +36,11 @@ interface ChatStore {
   isStreaming: boolean;
   streamingContent: string;
   streamingMessageId: string | null;
+  processedMessageIds: Set<string>; // NEW: Track processed messages for deduplication
   
   // Actions
   addMessage: (message: ChatMessage) => void;
+  addMessageWithDedup: (message: ChatMessage, messageId?: string) => void; // NEW
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   setMessages: (messages: ChatMessage[]) => void;
   clearMessages: () => void;
@@ -47,6 +49,7 @@ interface ChatStore {
   startStreaming: () => void;
   appendStreamContent: (content: string) => void;
   endStreaming: () => void;
+  clearProcessedMessageIds: () => void; // NEW: For session resets
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -59,6 +62,7 @@ export const useChatStore = create<ChatStore>()(
       isStreaming: false,
       streamingContent: '',
       streamingMessageId: null,
+      processedMessageIds: new Set<string>(),
       
       // Message management
       addMessage: (message) => {
@@ -66,6 +70,24 @@ export const useChatStore = create<ChatStore>()(
           messages: [...state.messages, message],
           isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
         }));
+      },
+      
+      // NEW: Add message with deduplication
+      addMessageWithDedup: (message, messageId) => {
+        const effectiveId = messageId || message.id || `${message.role}-${message.timestamp}`;
+        
+        if (get().processedMessageIds.has(effectiveId)) {
+          console.warn('[Chat] Duplicate message ignored:', effectiveId);
+          return;
+        }
+        
+        set(state => ({
+          messages: [...state.messages, message],
+          processedMessageIds: new Set(state.processedMessageIds).add(effectiveId),
+          isWaitingForResponse: false,
+        }));
+        
+        console.log('[Chat] Message added with dedup:', effectiveId);
       },
       
       updateMessage: (id, updates) => {
@@ -77,8 +99,14 @@ export const useChatStore = create<ChatStore>()(
       },
       
       setMessages: (messages) => set({ messages }),
-      clearMessages: () => set({ messages: [] }),
+      
+      clearMessages: () => set({ 
+        messages: [],
+        processedMessageIds: new Set() // Clear dedup set too
+      }),
+      
       setSessionId: (id) => set({ currentSessionId: id }),
+      
       setWaitingForResponse: (waiting) => set({ isWaitingForResponse: waiting }),
       
       // Streaming
@@ -111,12 +139,16 @@ export const useChatStore = create<ChatStore>()(
           set({ isStreaming: false, isWaitingForResponse: false });
         }
       },
+      
+      // NEW: Clear processed message IDs (for session resets)
+      clearProcessedMessageIds: () => set({ processedMessageIds: new Set() }),
     }),
     {
       name: 'mira-chat-storage',
       partialize: (state) => ({
         messages: state.messages,
         currentSessionId: state.currentSessionId,
+        // Don't persist processedMessageIds - it's per-session runtime state
       }),
     }
   )

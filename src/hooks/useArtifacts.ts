@@ -16,7 +16,16 @@ export interface ArtifactHook {
   removeArtifact: (id: string) => void;
   closeArtifacts: () => void;
   saveArtifactToFile: (id: string, filename: string) => Promise<void>;
+  saveArtifact: (id: string) => Promise<void>;
   copyArtifact: (id: string) => void;
+}
+
+function normalizePath(input: string): string {
+  // Convert backslashes to forward slashes, collapse multiple slashes, trim leading ./
+  return String(input)
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\.\/+/, '');
 }
 
 export const useArtifacts = (): ArtifactHook => {
@@ -30,7 +39,7 @@ export const useArtifacts = (): ArtifactHook => {
     removeArtifact
   } = useArtifactState();
   
-  const { setShowArtifacts } = useAppState();
+  const { setShowArtifacts, currentProject } = useAppState();
   const send = useWebSocketStore(state => state.send);
   
   const closeArtifacts = useCallback(() => {
@@ -41,23 +50,60 @@ export const useArtifacts = (): ArtifactHook => {
     const artifact = artifacts.find(a => a.id === id);
     if (!artifact) return;
     
+    if (!currentProject) {
+      console.error('Cannot save artifact: no current project');
+      return;
+    }
+    
+    const path = normalizePath(filename);
+
     try {
       await send({
         type: 'file_system_command',
-        method: 'file.save',
+        method: 'files.write',
         params: {
-          path: filename,
+          project_id: currentProject.id,
+          path,
           content: artifact.content
         }
       });
       
       // Update path to new filename
-      updateArtifact(id, { path: filename });
-      console.log(`Saved artifact to ${filename}`);
+      updateArtifact(id, { path });
+      console.log(`Saved artifact to ${path}`);
     } catch (error) {
       console.error('Failed to save artifact:', error);
     }
-  }, [artifacts, send, updateArtifact]);
+  }, [artifacts, currentProject, send, updateArtifact]);
+
+  // Save to the artifact's existing path without prompting
+  const saveArtifact = useCallback(async (id: string) => {
+    const artifact = artifacts.find(a => a.id === id);
+    if (!artifact) return;
+
+    if (!currentProject) {
+      console.error('Cannot save artifact: no current project');
+      return;
+    }
+
+    const path = normalizePath(artifact.path);
+
+    try {
+      await send({
+        type: 'file_system_command',
+        method: 'files.write',
+        params: {
+          project_id: currentProject.id,
+          path,
+          content: artifact.content
+        }
+      });
+      updateArtifact(id, { path });
+      console.log(`Saved artifact to ${path}`);
+    } catch (error) {
+      console.error('Failed to save artifact:', error);
+    }
+  }, [artifacts, currentProject, send, updateArtifact]);
   
   const copyArtifact = useCallback((id: string) => {
     const artifact = artifacts.find(a => a.id === id);
@@ -80,6 +126,7 @@ export const useArtifacts = (): ArtifactHook => {
     removeArtifact,
     closeArtifacts,
     saveArtifactToFile,
+    saveArtifact,
     copyArtifact
   };
 };

@@ -24,7 +24,8 @@ export function DocumentList({ projectId }: DocumentListProps) {
       params: { project_id: projectId },
     });
 
-    const unsubscribe = subscribe('doc-list', (message) => {
+    // ✅ FIXED: Changed from 'doc-list' to 'doc-list-panel' to avoid collision with ProjectsView
+    const unsubscribe = subscribe('doc-list-panel', (message) => {
       if (message.type === 'data' && message.data?.type === 'document_list') {
         setDocuments(message.data.documents || []);
         setLoading(false);
@@ -69,8 +70,8 @@ export function DocumentList({ projectId }: DocumentListProps) {
         params: { document_id: documentId },
       });
       
-      // Subscribe to the response
-      const unsubscribe = subscribe('doc-download', (message) => {
+      // ✅ FIXED: Changed from 'doc-download' to 'doc-download-panel' to avoid collision
+      const unsubscribe = subscribe('doc-download-panel', (message) => {
         if (message.type === 'data' && message.data?.type === 'document_content') {
           // Decode base64 and trigger download
           const content = atob(message.data.content);
@@ -185,20 +186,21 @@ export function DocumentList({ projectId }: DocumentListProps) {
                       <span>{doc.chunk_count} chunks</span>
                     </>
                   )}
-                </div>
-                
-                <div className="flex items-center gap-1 text-xs text-gray-600 mt-1">
-                  <Calendar className="w-3 h-3" />
-                  <span>{formatDate(doc.created_at)}</span>
+                  
+                  <span>•</span>
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    {formatDate(doc.created_at)}
+                  </span>
                 </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-2 ml-4">
+            <div className="flex items-center gap-2 flex-shrink-0 ml-3">
               <button
                 onClick={() => handleDownload(doc.id, doc.file_name)}
-                className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-700 rounded transition-colors"
-                title="Download document"
+                className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition-colors"
+                title="Download"
               >
                 <Download className="w-4 h-4" />
               </button>
@@ -206,11 +208,11 @@ export function DocumentList({ projectId }: DocumentListProps) {
               <button
                 onClick={() => handleDelete(doc.id, doc.file_name)}
                 disabled={deleting === doc.id}
-                className="p-2 text-gray-400 hover:text-red-500 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
-                title="Delete document"
+                className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Delete"
               >
                 {deleting === doc.id ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
                 ) : (
                   <Trash2 className="w-4 h-4" />
                 )}

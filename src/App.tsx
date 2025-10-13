@@ -11,6 +11,8 @@ import { useUIStore, useActiveTab } from './stores/useUIStore';  // ← Added us
 import { useWebSocketMessageHandler } from './hooks/useWebSocketMessageHandler';
 import { useMessageHandler } from './hooks/useMessageHandler';
 import { useChatPersistence } from './hooks/useChatPersistence';
+import { useArtifactFileContentWire } from './hooks/useArtifactFileContentWire';
+import { useToolResultArtifactBridge } from './hooks/useToolResultArtifactBridge';
 import { MessageSquare, Folder } from 'lucide-react';
 import './App.css';
 
@@ -37,6 +39,8 @@ function App() {
   useWebSocketMessageHandler(); // Handles data messages (projects, files, git)
   useMessageHandler();           // Handles response messages (chat)
   useChatPersistence(connectionState); // Handles chat history loading from backend + localStorage
+  useArtifactFileContentWire();  // Belt-and-suspenders: ensure file_content opens artifacts
+  useToolResultArtifactBridge(); // NEW: tool_result → Artifact Viewer bridge
   
   // Quick file open handler
   const quickFileOpen = useQuickFileOpen();

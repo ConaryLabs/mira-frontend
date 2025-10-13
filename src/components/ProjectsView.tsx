@@ -113,7 +113,7 @@ export const ProjectsView: React.FC = () => {
       await send({
         type: 'project_command',
         method: 'project.delete',
-        params: { id: projectId }
+        params: { project_id: projectId } // ✅ FIXED: backend expects project_id
       });
       
       if (currentProject?.id === projectId) {
@@ -277,7 +277,8 @@ export const ProjectsView: React.FC = () => {
       params: { project_id: currentProject.id },
     });
 
-    const unsubscribe = subscribe('doc-list', (message) => {
+    // ✅ FIXED: Changed from 'doc-list' to 'doc-list-modal' to avoid collision with DocumentList.tsx
+    const unsubscribe = subscribe('doc-list-modal', (message) => {
       if (message.type === 'data' && message.data?.type === 'document_list') {
         setDocuments(message.data.documents || []);
         setLoadingDocs(false);
@@ -322,7 +323,8 @@ export const ProjectsView: React.FC = () => {
         params: { document_id: documentId },
       });
       
-      const unsubscribe = subscribe('doc-download', (message) => {
+      // ✅ FIXED: Changed from 'doc-download' to 'doc-download-modal' to avoid collision
+      const unsubscribe = subscribe('doc-download-modal', (message) => {
         if (message.type === 'data' && message.data?.type === 'document_content') {
           const content = atob(message.data.content);
           const bytes = new Uint8Array(content.length);

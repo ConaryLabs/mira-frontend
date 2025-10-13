@@ -114,7 +114,7 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
     const result: FileNode[] = [];
     
     for (const node of nodes) {
-      const fullPath = node.path || node.name;
+      const fullPath = (node.path || node.name || '').replace(/\/+/, '/').replace(/\/+/g, '/');
       
       const isDirectory = node.is_directory || 
                          node.type === 'directory' || 
@@ -153,14 +153,15 @@ export const QuickFileOpen: React.FC<QuickFileOpenProps> = ({
   }, [query, files]);
 
   const handleFileSelect = async (file: FileNode) => {
-    console.log('File selected:', file.path);
+    const normalizedPath = (file.path || '').replace(/\/+/, '/').replace(/\/+/g, '/');
+    console.log('File selected:', normalizedPath);
     console.log('Project ID:', projectId);
     console.log('Requesting file content from backend...');
     
     try {
       const requestParams = {
         project_id: projectId,
-        file_path: file.path
+        file_path: normalizedPath
       };
       
       console.log('Sending request with params:', JSON.stringify(requestParams, null, 2));

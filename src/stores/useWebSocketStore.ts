@@ -1,4 +1,4 @@
-// src/stores/useWebSocketStore.ts - PERFORMANCE FIX
+// src/stores/useWebSocketStore.ts - HARDENED WITH SAFE PARSE
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -8,7 +8,7 @@ interface WebSocketMessage {
   [key: string]: any;
 }
 
-// NEW: Subscriber with optional message type filter
+// Subscriber with optional message type filter
 interface Subscriber {
   callback: (message: WebSocketMessage) => void;
   messageTypes?: string[]; // If undefined, receives all messages
@@ -25,7 +25,7 @@ interface WebSocketStore {
   // Message handling
   lastMessage: WebSocketMessage | null;
   messageQueue: WebSocketMessage[];
-  listeners: Map<string, Subscriber>; // CHANGED: Now stores Subscriber objects
+  listeners: Map<string, Subscriber>;
   
   // Actions
   connect: () => void;
@@ -34,7 +34,7 @@ interface WebSocketStore {
   subscribe: (
     id: string, 
     callback: (message: WebSocketMessage) => void,
-    messageTypes?: string[] // NEW: Optional message type filter
+    messageTypes?: string[]
   ) => () => void;
   
   // Internal actions
@@ -58,6 +58,8 @@ const KNOWN_MESSAGE_TYPES = new Set([
 
 const KNOWN_DATA_TYPES = new Set([
   'project_list',
+  'projects',
+  'project_updated',
   'document_list',
   'document_deleted',
   'document_processing_started',
@@ -65,13 +67,23 @@ const KNOWN_DATA_TYPES = new Set([
   'document_processed',
   'document_content',
   'memory_data',
-  'local_directory_attached',  // ← ADDED: Recognize local directory attachments
+  'local_directory_attached',
+  'git_status',
+  'file_tree',
+  'file_content',
+  'stream_delta',
+  'reasoning_delta',
+  'stream_done',
+  'artifact_created',
+  'tool_result', // ← ADDED: log tool results cleanly
 ]);
 
 // Messages we don't need to log (too noisy)
 const SILENT_TYPES = new Set([
   'heartbeat',
   'document_processing_progress',
+  'stream_delta', // Don't log every token
+  'reasoning_delta',
 ]);
 
 export const useWebSocketStore = create<WebSocketStore>()(
@@ -116,6 +128,10 @@ export const useWebSocketStore = create<WebSocketStore>()(
             get().handleMessage(message);
           } catch (error) {
             console.error('[WS] Failed to parse message:', error);
+            console.error('[WS] Raw data (first 500 chars):', event.data.slice(0, 500));
+            
+            // Don't crash - just skip this message
+            return;
           }
         };
         
@@ -164,7 +180,11 @@ export const useWebSocketStore = create<WebSocketStore>()(
         socket.send(messageStr);
         
         if (message.type !== 'heartbeat' && message.method !== 'memory.get_recent') {
-          console.log('[WS] Sent:', message.type, message.method || '');
+          // Log type + method (if present) + a hint if content is empty
+          const hint = message.type === 'chat' && (!message.content || message.content.trim() === '')
+            ? ' (empty content)'
+            : '';
+          console.log('[WS] Sent:', message.type, message.method || '', hint);
         }
       } catch (error) {
         console.error('[WS] Failed to send message:', error);
@@ -174,7 +194,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
       }
     },
     
-    // NEW: Enhanced subscribe with message type filtering
     subscribe: (
       id: string, 
       callback: (message: WebSocketMessage) => void,
@@ -201,7 +220,6 @@ export const useWebSocketStore = create<WebSocketStore>()(
       set({ connectionState });
     },
     
-    // PERFORMANCE FIX: Only notify listeners that care about this message type
     handleMessage: (message: WebSocketMessage) => {
       set({ lastMessage: message });
       
@@ -222,13 +240,13 @@ export const useWebSocketStore = create<WebSocketStore>()(
         } else if (message.type === 'error') {
           console.error('[WS] Error:', message.message);
         } else if (message.type === 'response') {
-          // Don't log responses
+          // Don't log responses (too noisy), but we keep counts below
         } else if (!KNOWN_MESSAGE_TYPES.has(message.type)) {
           console.warn(`[WS] Unknown message type: ${message.type}`);
         }
       }
       
-      // NEW: Filtered notification - only call listeners that care
+      // Filtered notification - only call listeners that care
       const { listeners } = get();
       let notifiedCount = 0;
       

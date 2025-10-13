@@ -1,5 +1,5 @@
 // src/components/ArtifactPanel.tsx
-// FIXED: Proper height constraints for Monaco editor
+// FIXED: Proper height constraints for Monaco editor + Save respects full path
 
 import React, { useState, useCallback } from 'react';
 import { X, Copy, Save, FileText, Code } from 'lucide-react';
@@ -13,6 +13,7 @@ export const ArtifactPanel: React.FC = () => {
     setActiveArtifact, 
     closeArtifacts,
     saveArtifactToFile,
+    saveArtifact,
     copyArtifact,
     updateArtifact,
     removeArtifact
@@ -26,10 +27,15 @@ export const ArtifactPanel: React.FC = () => {
 
   const handleSaveToFile = async () => {
     if (!activeArtifact) return;
-    const filename = prompt('Save as:', activeArtifact.path);
+    const filename = prompt('Save as (relative to project root):', activeArtifact.path);
     if (filename) {
       await saveArtifactToFile(activeArtifact.id, filename);
     }
+  };
+
+  const handleSave = async () => {
+    if (!activeArtifact) return;
+    await saveArtifact(activeArtifact.id);
   };
 
   const getDisplayName = (path: string): string => {
@@ -37,7 +43,7 @@ export const ArtifactPanel: React.FC = () => {
   };
 
   const getIcon = (language?: string) => {
-    if (language && ['javascript', 'typescript', 'rust', 'python', 'json'].includes(language)) {
+    if (language && ['javascript', 'typescript', 'rust', 'python', 'json', 'css', 'html', 'markdown'].includes(language)) {
       return <Code size={16} />;
     }
     return <FileText size={16} />;
@@ -113,6 +119,13 @@ export const ArtifactPanel: React.FC = () => {
               title="Copy to clipboard"
             >
               <Copy size={16} />
+            </button>
+            <button
+              onClick={handleSave}
+              className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-600/20 rounded transition-colors"
+              title="Save"
+            >
+              <Save size={16} />
             </button>
             <button
               onClick={handleSaveToFile}

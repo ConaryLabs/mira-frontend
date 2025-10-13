@@ -16,7 +16,7 @@ export const useWebSocketMessageHandler = () => {
     updateGitStatus, 
     addModifiedFile,
     clearModifiedFiles,
-    setShowFileExplorer,
+    setShowArtifacts,
     addArtifact
   } = useAppState();
 
@@ -24,55 +24,46 @@ export const useWebSocketMessageHandler = () => {
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
-        console.log('WebSocket message received:', message);
-        handleMessage(message);
+        // Unified router: handle both data and response envelopes for non-chat payloads
+        if (message.type === 'data') {
+          if (message.data) handleDataMessage(message.data);
+          return;
+        }
+        if (message.type === 'response') {
+          // Only handle known non-chat responses here to avoid stepping on chat handler
+          const dt = message.data?.type;
+          if (dt && (
+            dt === 'file_content' ||
+            dt === 'project_list' ||
+            dt === 'projects' ||
+            dt === 'git_status' ||
+            dt === 'file_tree' ||
+            dt === 'local_directory_attached' ||
+            dt === 'project_updated'
+          )) {
+            handleDataMessage(message.data);
+            return;
+          }
+        }
+        if (message.type === 'status') {
+          // Check if it's a project deletion confirmation
+          if (message.message && message.message.includes('deleted')) {
+            send({ type: 'project_command', method: 'project.list', params: {} });
+          }
+          return;
+        }
+        if (message.type === 'error') {
+          // Surface errors in console
+          console.error('[WS-Global] Backend error:', message.error || message.message || 'Unknown error');
+          return;
+        }
       },
-      ['data', 'status', 'error']
+      // IMPORTANT: listen for 'response' too so git.file → file_content responses open artifacts
+      ['data', 'status', 'error', 'response']
     );
 
     return unsubscribe;
-  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
-
-  const handleMessage = (message: any) => {
-    if (!message || typeof message !== 'object') {
-      console.warn('Received invalid message:', message);
-      return;
-    }
-
-    switch (message.type) {
-      case 'data':
-        if (message.data) {
-          console.log('Handling data message:', message.data);
-          handleDataMessage(message.data);
-        }
-        break;
-        
-      case 'status':
-        console.log('Status:', message.message);
-        // Check if it's a project deletion confirmation
-        if (message.message && message.message.includes('deleted')) {
-          console.log('Project deleted, refreshing list');
-          send({
-            type: 'project_command',
-            method: 'project.list',
-            params: {}
-          });
-        }
-        break;
-        
-      case 'error':
-        console.error('Backend error:', message.error || message.message || 'Unknown error');
-        break;
-        
-      case 'heartbeat':
-        // Ignore heartbeat messages
-        break;
-        
-      default:
-        console.log('Unhandled message type:', message.type);
-        break;
-    }
-  };
+  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact, setShowArtifacts]);
 
   const detectLanguage = (filePath: string): string => {
     if (!filePath) return 'plaintext';
@@ -89,126 +80,102 @@ export const useWebSocketMessageHandler = () => {
       case 'md': return 'markdown';
       case 'toml': return 'toml';
       case 'yaml': case 'yml': return 'yaml';
-      case 'sh': return 'shell';
+      case 'sh': case 'bash': return 'shell';
+      case 'go': return 'go';
+      case 'java': return 'java';
+      case 'cpp': return 'cpp';
+      case 'c': return 'c';
+      case 'sql': return 'sql';
       default: return 'plaintext';
     }
   };
 
   const handleDataMessage = (data: any) => {
-    console.log('Processing data message type:', data.type);
-    
-    if (!data.type) {
-      console.log('No type field - letting chat system handle memory data');
+    const dtype = data?.type;
+    if (!dtype) {
+      // No type field - likely memory payload handled elsewhere
       return;
     }
     
-    switch (data.type) {
-      case 'file_content':
-        console.log('File content received, creating artifact:', {
-          path: data.path,
-          contentLength: data.content?.length || 0
-        });
-        
-        if (data.content !== undefined) {
-          const newArtifact: Artifact = {
-            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            path: data.path || 'untitled',
-            content: data.content || '// No content',
-            language: detectLanguage(data.path || ''),
-          };
-          
-          console.log('Creating artifact from file:', newArtifact.path);
-          addArtifact(newArtifact);
-          setShowFileExplorer(true);
+    switch (dtype) {
+      case 'file_content': {
+        // Be permissive about field names coming back from backend
+        const rawPath = data.path || data.file_path || data.name || 'untitled';
+        const path = String(rawPath).replace(/\/+/, '/').replace(/\/+/g, '/');
+        const content = data.content ?? data.file_content ?? data.text ?? data.body ?? data.value;
+        if (typeof content === 'undefined') {
+          console.warn('[WS-Global] file_content received without content field', data);
+          return;
         }
-        break;
 
-      case 'projects':
-        console.log('Projects data received:', data.projects?.length || 0, 'projects');
-        if (data.projects) {
-          setProjects(data.projects);
-        }
-        break;
+        const newArtifact: Artifact = {
+          id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          path,
+          content,
+          language: detectLanguage(path),
+        };
 
-      case 'project_list':
-        console.log('Processing project list:', data.projects?.length || 0, 'projects');
-        if (data.projects && Array.isArray(data.projects)) {
-          setProjects(data.projects);
-          console.log('Projects updated in state');
-        }
-        break;
+        addArtifact(newArtifact);
+        setShowArtifacts(true);
+        return;
+      }
 
-      case 'project_created':
-        console.log('Project created:', data.project?.name);
-        // Refresh project list to get the new project
-        send({
-          type: 'project_command',
-          method: 'project.list',
-          params: {}
-        });
-        break;
+      case 'projects': {
+        if (Array.isArray(data.projects)) setProjects(data.projects);
+        return;
+      }
 
-      case 'local_directory_attached':
-        console.log('Local directory attached:', data.path);
-        // CRITICAL: Refresh project list to show updated attachment status
-        send({
-          type: 'project_command',
-          method: 'project.list',
-          params: {}
-        });
-        break;
+      case 'project_list': {
+        if (Array.isArray(data.projects)) setProjects(data.projects);
+        return;
+      }
 
-      case 'git_status':
-        console.log('Git status update:', data.status);
+      case 'project_created': {
+        // Refresh projects
+        send({ type: 'project_command', method: 'project.list', params: {} });
+        return;
+      }
+
+      case 'local_directory_attached': {
+        send({ type: 'project_command', method: 'project.list', params: {} });
+        return;
+      }
+
+      case 'git_status': {
         if (data.status === 'synced' || data.status === 'modified') {
           updateGitStatus(data.status);
-          
           if (data.modified_files) {
             clearModifiedFiles();
             data.modified_files.forEach((file: string) => addModifiedFile(file));
           }
         }
-        break;
+        return;
+      }
 
-      case 'file_tree':
-        console.log('File tree received:', data.tree?.length || 0, 'items');
-        break;
+      case 'file_tree': {
+        // QuickFileOpen consumes these; nothing to do globally
+        return;
+      }
 
       // DOCUMENT PROCESSING MESSAGES - handled by DocumentUpload component
       case 'document_processing_started':
-        console.log('Document processing started:', data.file_name);
-        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
-        break;
-        
       case 'document_processing_progress':
-        console.log('Document processing progress:', data.progress);
-        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
-        break;
-        
       case 'document_processed':
-        console.log('Document processed successfully:', data.file_name);
-        // Handled by DocumentUpload subscriber, don't pass to ChatPersistence
-        break;
-
       case 'document_list':
       case 'document_search_results':
-      case 'document_content':
-        console.log(`Document message (${data.type}) - handled by document components`);
-        break;
+      case 'document_content': {
+        // handled by doc components
+        return;
+      }
 
-      case 'project_updated':
-        console.log('Project update notification:', data.project_id);
-        // Refresh project list to get updated data
-        send({
-          type: 'project_command',
-          method: 'project.list',
-          params: {}
-        });
-        break;
+      case 'project_updated': {
+        send({ type: 'project_command', method: 'project.list', params: {} });
+        return;
+      }
 
       default:
-        console.log('Unhandled data message type:', data.type);
-        break;
+        // Unknown non-chat data; ignore
+        return;
     }
   };
 };
