@@ -1,5 +1,5 @@
 // src/hooks/useMessageHandler.ts
-// HARDENED: Always clears waiting flag, handles stream lifecycle
+// SCORCHED EARTH: Minimal artifact processing, no legacy fields
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -10,56 +10,50 @@ export const useMessageHandler = () => {
   const subscribe = useWebSocketStore(state => state.subscribe);
   const { 
     addMessage, 
-    addMessageWithDedup,
     startStreaming, 
     appendStreamContent, 
     endStreaming,
     setWaitingForResponse 
   } = useChatStore();
 
-  // Main response handler
   useEffect(() => {
+    // Subscribe to BOTH 'response' and 'data' messages
     const unsubscribe = subscribe(
       'chat-handler',
       (message) => {
+        // Enhanced logging - dump the COMPLETE message
+        console.log('[chat-handler] Inbound message:', {
+          type: message.type,
+          keys: Object.keys(message),
+          dataKeys: message.data ? Object.keys(message.data) : [],
+          fullMessage: JSON.parse(JSON.stringify(message)), // Deep clone for inspection
+        });
+
         if (message.type === 'response') {
           handleChatResponse(message);
         } else if (message.type === 'data') {
           handleDataMessage(message);
         }
       },
-      ['response', 'data']
+      ['response', 'data'] // Listen to BOTH
     );
     return unsubscribe;
-  }, [subscribe]);
-
-  // Error handler - always clears waiting flag
-  useEffect(() => {
-    const unsubscribe = subscribe(
-      'error-handler',
-      (message) => {
-        if (message.type === 'error') {
-          console.error('[Handler] Error:', message.message);
-          setWaitingForResponse(false); // CRITICAL: Clear flag on errors
-          
-          // TODO: Show toast notification when available
-          // addToast({ type: 'error', message: message.message });
-        }
-      },
-      ['error']
-    );
-    return unsubscribe;
-  }, [subscribe, setWaitingForResponse]);
+  }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming, setWaitingForResponse]);
 
   function handleDataMessage(message: any) {
-    const dataType = message.data?.type;
-    const messageId = message.data?.message_id;
-    
-    // Check for duplicate using backend's message_id
+    const data = message.data;
+    if (!data) return;
+
+    const dataType = data.type;
+    const messageId = data.message_id;
+
+    console.log('[chat-handler] Data message:', { dataType, messageId });
+
+    // Deduplication using backend's message_id
     if (messageId) {
       const { processedMessageIds } = useChatStore.getState();
       if (processedMessageIds.has(messageId)) {
-        console.warn('[Handler] Duplicate data message ignored:', messageId);
+        console.warn('[chat-handler] Duplicate data message ignored:', messageId);
         return;
       }
       // Mark as processed for non-delta events
@@ -78,14 +72,14 @@ export const useMessageHandler = () => {
       }
     } else if (dataType === 'stream_done') {
       // Stream complete - ALWAYS clear waiting flag
-      console.log('[Handler] Stream complete');
+      console.log('[chat-handler] Stream complete');
       endStreaming();
-      setWaitingForResponse(false); // Explicit clear
+      setWaitingForResponse(false);
     } else if (dataType === 'artifact_created' || dataType === 'tool_result') {
       // Artifact or tool result notification
       const artifact = message.data?.artifact;
       if (artifact) {
-        console.log('[Handler] Artifact created:', artifact.path);
+        console.log('[chat-handler] Artifact created:', artifact.path);
         processArtifacts([artifact]);
         return;
       }
@@ -99,7 +93,12 @@ export const useMessageHandler = () => {
   }
 
   function handleChatResponse(message: any) {
-    console.log('[Handler] Chat response received:', message);
+    console.log('[chat-handler] Chat response:', {
+      hasData: !!message.data,
+      hasContent: !!(message.data?.content || message.content),
+      hasArtifacts: !!(message.data?.artifacts || message.artifacts),
+      artifactCount: (message.data?.artifacts || message.artifacts || []).length,
+    });
     
     // Legacy streaming support (if backend sends this)
     if (message.streaming) {
@@ -107,17 +106,11 @@ export const useMessageHandler = () => {
       return;
     }
     
-    // Legacy complete flag (if backend sends this)
     if (message.complete) {
       endStreaming();
-      setWaitingForResponse(false); // Explicit clear
       return;
     }
     
-    // Extract message_id from backend for deduplication
-    const messageId = message.data?.message_id || message.message_id;
-    
-    // Regular message
     const content = message.data?.content || message.content || message.message || '';
     const artifacts = message.data?.artifacts || message.artifacts || [];
     
@@ -130,38 +123,27 @@ export const useMessageHandler = () => {
       artifacts
     };
     
-    console.log('[Handler] Adding message with content length:', content.length);
+    console.log('[chat-handler] Adding message:', {
+      contentLength: content.length,
+      artifactCount: artifacts.length,
+    });
     
-    // Use dedup if we have a message_id from backend
-    if (messageId) {
-      addMessageWithDedup(assistantMessage, messageId);
-    } else {
-      addMessage(assistantMessage);
-    }
+    addMessage(assistantMessage);
     
-    setWaitingForResponse(false); // CRITICAL: Always clear on message completion
-    
-    // Preferred path: explicit artifacts array
     if (artifacts && artifacts.length > 0) {
-      console.log('[Handler] Processing artifacts:', artifacts.length);
+      console.log('[chat-handler] Processing', artifacts.length, 'artifacts from response');
       processArtifacts(artifacts);
-      return;
-    }
-
-    // Fallback: try to extract artifacts from tool envelopes embedded in response
-    const maybeArtifacts = extractArtifactsFromToolEnvelope(message.data) || extractArtifactsFromToolEnvelope(message);
-    if (maybeArtifacts && maybeArtifacts.length > 0) {
-      console.log('[Handler] Extracted artifacts from tool envelope:', maybeArtifacts.length);
-      processArtifacts(maybeArtifacts);
     }
   }
   
   function processArtifacts(artifacts: any[]) {
     const { addArtifact, setShowArtifacts } = useAppState.getState();
     
+    console.log('[chat-handler] processArtifacts called with:', artifacts);
+    
     artifacts.forEach((artifact: any) => {
       if (!artifact || !artifact.content) {
-        console.warn('[Handler] Skipping invalid artifact:', artifact);
+        console.warn('[chat-handler] Skipping invalid artifact:', artifact);
         return;
       }
       
@@ -176,7 +158,7 @@ export const useMessageHandler = () => {
         changeType: artifact.change_type,
       };
       
-      console.log('[Handler] Adding artifact:', cleanArtifact.path);
+      console.log('[chat-handler] Adding artifact:', cleanArtifact.path);
       addArtifact(cleanArtifact);
     });
     

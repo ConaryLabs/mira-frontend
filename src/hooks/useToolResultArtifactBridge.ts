@@ -88,10 +88,22 @@ export function useToolResultArtifactBridge() {
 
   useEffect(() => {
     const unsubscribe = subscribe('artifact-tool-bridge', (message) => {
+      // Enhanced logging
+      console.log('[artifact-tool-bridge] Received message:', {
+        type: message.type,
+        keys: Object.keys(message),
+        dataKeys: message.data ? Object.keys(message.data) : [],
+        dataType: message.data?.type,
+        fullMessage: message, // CRITICAL: Log entire message for debugging
+      });
+
       if (message.type !== 'response') return;
 
       const data = message.data || message;
-      if (!data) return;
+      if (!data) {
+        console.log('[artifact-tool-bridge] No data in message');
+        return;
+      }
 
       // Tool result envelopes vary. Support a few:
       // - { type: 'tool_result', tool_name: 'create_artifact', result: {...} }
@@ -100,16 +112,35 @@ export function useToolResultArtifactBridge() {
       const toolName = data.tool_name || data.tool || data.data?.tool_name;
 
       const isToolResult = dtype === 'tool_result' || dtype === 'tool' || !!toolName;
-      if (!isToolResult) return;
+      
+      console.log('[artifact-tool-bridge] Checking for tool result:', {
+        dtype,
+        toolName,
+        isToolResult,
+      });
+
+      if (!isToolResult) {
+        console.log('[artifact-tool-bridge] Not a tool result, ignoring');
+        return;
+      }
 
       const artifacts = extractArtifactsFromToolResult(data) || extractArtifactsFromToolResult(data.data);
-      if (!artifacts || artifacts.length === 0) return;
+      
+      console.log('[artifact-tool-bridge] Extracted artifacts:', artifacts);
+      
+      if (!artifacts || artifacts.length === 0) {
+        console.log('[artifact-tool-bridge] No artifacts found in tool result');
+        return;
+      }
 
       const { addArtifact, setShowArtifacts } = useAppState.getState();
-      artifacts.forEach(a => addArtifact(a));
+      artifacts.forEach(a => {
+        console.log('[artifact-tool-bridge] Adding artifact:', a.path);
+        addArtifact(a);
+      });
       setShowArtifacts(true);
 
-      console.log(`[Bridge] Opened ${artifacts.length} artifact(s) from tool_result`);
+      console.log(`[artifact-tool-bridge] ✅ Opened ${artifacts.length} artifact(s)`);
     }, ['response']);
 
     return unsubscribe;

@@ -4,7 +4,7 @@
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import type { Artifact } from '../stores/useChatStore';  // ← Fixed import
+import type { Artifact } from '../stores/useChatStore';
 
 export const useWebSocketMessageHandler = () => {
   const subscribe = useWebSocketStore(state => state.subscribe);
@@ -24,6 +24,13 @@ export const useWebSocketMessageHandler = () => {
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
+        // Log EVERY inbound message with its type and keys
+        console.log('[WS-Global] Inbound:', {
+          type: message.type,
+          keys: Object.keys(message),
+          dataType: message.data?.type,
+        });
+
         // Unified router: handle both data and response envelopes for non-chat payloads
         if (message.type === 'data') {
           if (message.data) handleDataMessage(message.data);
@@ -97,7 +104,34 @@ export const useWebSocketMessageHandler = () => {
       return;
     }
     
+    console.log('[WS-Global] Handling data type:', dtype);
+
     switch (dtype) {
+      // ========== NEW: ARTIFACT CREATED ==========
+      case 'artifact_created': {
+        console.log('[WS-Global] 🎨 artifact_created received:', data.artifact);
+        
+        const artifactData = data.artifact;
+        if (!artifactData || !artifactData.content) {
+          console.warn('[WS-Global] artifact_created missing content:', data);
+          return;
+        }
+
+        const path = artifactData.path || artifactData.title || 'untitled';
+        const newArtifact: Artifact = {
+          id: artifactData.id || `artifact-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          path,
+          content: artifactData.content,
+          language: artifactData.language || detectLanguage(path),
+          changeType: artifactData.change_type,
+        };
+
+        console.log('[WS-Global] Adding artifact to viewer:', newArtifact.path);
+        addArtifact(newArtifact);
+        setShowArtifacts(true);
+        return;
+      }
+
       case 'file_content': {
         // Be permissive about field names coming back from backend
         const rawPath = data.path || data.file_path || data.name || 'untitled';
@@ -174,7 +208,7 @@ export const useWebSocketMessageHandler = () => {
       }
 
       default:
-        // Unknown non-chat data; ignore
+        console.log('[WS-Global] Unhandled data type:', dtype);
         return;
     }
   };
