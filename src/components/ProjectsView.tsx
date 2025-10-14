@@ -7,6 +7,7 @@ import {
 import { useAppState } from '../stores/useAppState';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { DocumentsModal } from './documents';
+import { CodebaseAttachModal } from './CodebaseAttachModal';
 import type { Project } from '../types';
 
 export const ProjectsView: React.FC = () => {
@@ -21,10 +22,8 @@ export const ProjectsView: React.FC = () => {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   
-  // Local directory attachment state
-  const [showAttachLocal, setShowAttachLocal] = useState<string | null>(null);
-  const [localDirectoryPath, setLocalDirectoryPath] = useState('');
-  const [attaching, setAttaching] = useState(false);
+  // Codebase attachment state
+  const [showAttachCodebase, setShowAttachCodebase] = useState<string | null>(null);
   
   // Documents modal state
   const [showDocuments, setShowDocuments] = useState(false);
@@ -118,22 +117,33 @@ export const ProjectsView: React.FC = () => {
     setCurrentProject(project);
   };
   
-  const handleAttachLocal = async () => {
-    if (!localDirectoryPath.trim() || !showAttachLocal) return;
+  const handleAttachCodebase = async (
+    type: 'local' | 'git', 
+    data: { path?: string; url?: string; branch?: string }
+  ) => {
+    if (!showAttachCodebase) return;
     
-    setAttaching(true);
     try {
-      await send({
-        type: 'project_command',
-        method: 'project.attach_local',
-        params: {
-          project_id: showAttachLocal,
-          directory_path: localDirectoryPath.trim()
-        }
-      });
-      
-      setShowAttachLocal(null);
-      setLocalDirectoryPath('');
+      if (type === 'local') {
+        await send({
+          type: 'project_command',
+          method: 'project.attach_local',
+          params: {
+            project_id: showAttachCodebase,
+            directory_path: data.path
+          }
+        });
+      } else {
+        await send({
+          type: 'git_command',
+          method: 'git.import',
+          params: {
+            project_id: showAttachCodebase,
+            git_url: data.url,
+            branch: data.branch
+          }
+        });
+      }
       
       // Refresh project list
       setTimeout(() => {
@@ -145,8 +155,7 @@ export const ProjectsView: React.FC = () => {
       }, 100);
     } catch (error) {
       console.error('Attach failed:', error);
-    } finally {
-      setAttaching(false);
+      throw error;
     }
   };
   
@@ -278,61 +287,13 @@ export const ProjectsView: React.FC = () => {
         </div>
       )}
       
-      {/* Attach Local Directory Modal */}
-      {showAttachLocal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-slate-100 mb-4">Attach Local Directory</h2>
-            <p className="text-slate-400 text-sm mb-4">
-              Link this project to a local directory on your machine for file operations.
-            </p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Directory Path *
-                </label>
-                <input
-                  type="text"
-                  value={localDirectoryPath}
-                  onChange={(e) => setLocalDirectoryPath(e.target.value)}
-                  placeholder="/home/user/my-project"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && localDirectoryPath.trim()) {
-                      e.preventDefault();
-                      handleAttachLocal();
-                    }
-                    if (e.key === 'Escape') {
-                      setShowAttachLocal(null);
-                      setLocalDirectoryPath('');
-                    }
-                  }}
-                />
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={handleAttachLocal}
-                  disabled={!localDirectoryPath.trim() || attaching}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
-                >
-                  {attaching ? 'Attaching...' : 'Attach Directory'}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAttachLocal(null);
-                    setLocalDirectoryPath('');
-                  }}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Attach Codebase Modal */}
+      {showAttachCodebase && (
+        <CodebaseAttachModal
+          projectId={showAttachCodebase}
+          onClose={() => setShowAttachCodebase(null)}
+          onAttach={handleAttachCodebase}
+        />
       )}
       
       {/* Documents Modal */}
@@ -451,12 +412,12 @@ export const ProjectsView: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setShowAttachLocal(project.id);
+                          setShowAttachCodebase(project.id);
                         }}
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors text-sm"
                       >
                         <Folder size={14} />
-                        Attach Local Directory
+                        Attach Codebase
                       </button>
                     )}
                     
