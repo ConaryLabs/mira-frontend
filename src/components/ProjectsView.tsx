@@ -119,7 +119,7 @@ export const ProjectsView: React.FC = () => {
   
   const handleAttachCodebase = async (
     type: 'local' | 'git', 
-    data: { path?: string; url?: string; branch?: string }
+    data: { path?: string; url?: string }
   ) => {
     if (!showAttachCodebase) return;
     
@@ -134,15 +134,43 @@ export const ProjectsView: React.FC = () => {
           }
         });
       } else {
+        // Git import is 3 steps: attach → clone → import
+        console.log('Step 1: Attaching repository...');
+        await send({
+          type: 'git_command',
+          method: 'git.attach',
+          params: {
+            project_id: showAttachCodebase,
+            repo_url: data.url
+          }
+        });
+        
+        // Wait for attach to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('Step 2: Cloning repository...');
+        await send({
+          type: 'git_command',
+          method: 'git.clone',
+          params: {
+            project_id: showAttachCodebase
+          }
+        });
+        
+        // Wait for clone to complete (this can take a while)
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        console.log('Step 3: Importing codebase...');
         await send({
           type: 'git_command',
           method: 'git.import',
           params: {
-            project_id: showAttachCodebase,
-            git_url: data.url,
-            branch: data.branch
+            project_id: showAttachCodebase
           }
         });
+        
+        // Wait for import to complete
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
       // Refresh project list

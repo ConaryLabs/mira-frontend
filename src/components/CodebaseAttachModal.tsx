@@ -5,39 +5,45 @@ import { X, Folder, Github } from 'lucide-react';
 interface CodebaseAttachModalProps {
   projectId: string;
   onClose: () => void;
-  onAttach: (type: 'local' | 'git', data: { path?: string; url?: string; branch?: string }) => Promise<void>;
+  onAttach: (type: 'local' | 'git', data: { path?: string; url?: string }) => Promise<void>;
 }
 
 export function CodebaseAttachModal({ projectId, onClose, onAttach }: CodebaseAttachModalProps) {
   const [activeTab, setActiveTab] = useState<'local' | 'git'>('local');
   const [attaching, setAttaching] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
   
   // Local state
   const [localPath, setLocalPath] = useState('');
   
   // Git state
   const [gitUrl, setGitUrl] = useState('');
-  const [gitBranch, setGitBranch] = useState('main');
 
   const handleSubmit = async () => {
     if (attaching) return;
     
     setAttaching(true);
+    setStatusMessage('');
+    
     try {
       if (activeTab === 'local') {
         if (!localPath.trim()) return;
+        setStatusMessage('Attaching local directory...');
         await onAttach('local', { path: localPath.trim() });
       } else {
         if (!gitUrl.trim()) return;
+        setStatusMessage('Importing repository (this may take a minute)...');
         await onAttach('git', { 
-          url: gitUrl.trim(), 
-          branch: gitBranch.trim() || 'main' 
+          url: gitUrl.trim()
         });
       }
-      onClose();
+      setStatusMessage('Success! Refreshing project list...');
+      setTimeout(() => {
+        onClose();
+      }, 500);
     } catch (error) {
       console.error('Attach failed:', error);
-    } finally {
+      setStatusMessage(`Error: ${error instanceof Error ? error.message : 'Attach failed'}`);
       setAttaching(false);
     }
   };
@@ -139,25 +145,22 @@ export function CodebaseAttachModal({ projectId, onClose, onAttach }: CodebaseAt
                   HTTPS or SSH URL of the repository
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Branch (optional)
-                </label>
-                <input
-                  type="text"
-                  value={gitBranch}
-                  onChange={(e) => setGitBranch(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="main"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-slate-500 mt-2">
-                  Leave empty to use the default branch
-                </p>
-              </div>
             </>
           )}
         </div>
+
+        {/* Status Message */}
+        {statusMessage && (
+          <div className={`mt-4 p-3 rounded-lg text-sm ${
+            statusMessage.startsWith('Error') 
+              ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+              : statusMessage.startsWith('Success')
+              ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+              : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+          }`}>
+            {statusMessage}
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-3 mt-6">
