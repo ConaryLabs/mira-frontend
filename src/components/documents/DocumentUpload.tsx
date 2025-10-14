@@ -142,77 +142,86 @@ export function DocumentUpload({ projectId, onUploadComplete }: DocumentUploadPr
     e.stopPropagation();
   }, []);
 
+  const handleClick = () => {
+    if (status === 'idle') {
+      document.getElementById('file-upload-input')?.click();
+    }
+  };
+
   return (
     <div
       onDrop={handleDrop}
       onDragOver={handleDragOver}
-      className={`p-6 border-2 border-dashed rounded-lg transition-colors ${
-        status === 'success' 
-          ? 'border-green-500 bg-green-50' 
+      onClick={handleClick}
+      className={`
+        p-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer
+        ${status === 'success' 
+          ? 'border-green-500 bg-green-500/10' 
           : status === 'error'
-          ? 'border-red-500 bg-red-50'
+          ? 'border-red-500 bg-red-500/10'
           : uploading
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-600 hover:border-blue-500 bg-gray-800'
-      }`}
+          ? 'border-blue-500 bg-blue-500/10'
+          : 'border-slate-600 hover:border-slate-500 bg-slate-800/50'
+        }
+      `}
     >
+      <input
+        type="file"
+        id="file-upload-input"
+        accept=".pdf,.docx,.doc,.txt,.md"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFileSelect(file);
+        }}
+        className="hidden"
+      />
+      
       <div className="flex flex-col items-center">
         {status === 'success' ? (
           <>
-            <CheckCircle className="w-12 h-12 text-green-600 mb-4" />
-            <p className="text-green-700 font-medium">Upload complete!</p>
+            <CheckCircle className="w-12 h-12 text-green-500 mb-3" />
+            <h3 className="text-lg font-semibold text-slate-100 mb-1">Upload Complete!</h3>
+            <p className="text-sm text-slate-400">{fileName} has been processed and indexed</p>
           </>
         ) : status === 'error' ? (
           <>
-            <XCircle className="w-12 h-12 text-red-600 mb-4" />
-            <p className="text-red-700 font-medium">{errorMessage}</p>
+            <XCircle className="w-12 h-12 text-red-500 mb-3" />
+            <h3 className="text-lg font-semibold text-slate-100 mb-1">Upload Failed</h3>
+            <p className="text-sm text-red-400 mb-3">{errorMessage}</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setStatus('idle');
+                setErrorMessage('');
+              }}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 font-medium transition-colors"
+            >
+              Try Again
+            </button>
+          </>
+        ) : uploading ? (
+          <>
+            <Upload className="w-12 h-12 text-blue-500 mb-3 animate-pulse" />
+            <h3 className="text-lg font-semibold text-slate-100 mb-1">Uploading...</h3>
+            <p className="text-sm text-slate-400 mb-3">{fileName}</p>
+            <div className="w-full max-w-xs bg-slate-700 rounded-full h-2 overflow-hidden">
+              <div 
+                className="bg-blue-500 h-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2">{Math.round(progress)}%</p>
           </>
         ) : (
           <>
-            <Upload className="w-12 h-12 text-gray-400 mb-4" />
-            
-            <input
-              type="file"
-              accept=".pdf,.docx,.doc,.txt,.md"
-              onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-              disabled={uploading}
-              className="hidden"
-              id="file-upload"
-            />
-            
-            <label
-              htmlFor="file-upload"
-              className={`px-4 py-2 bg-blue-600 text-white rounded-md cursor-pointer hover:bg-blue-700 transition-colors ${
-                uploading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {uploading ? 'Uploading...' : 'Choose Document'}
-            </label>
-            
-            <p className="mt-2 text-sm text-gray-400">
-              PDF, DOCX, TXT, or MD files (max 50MB)
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Or drag and drop a file here
-            </p>
+            <Upload className="w-12 h-12 text-slate-400 mb-3" />
+            <h3 className="text-lg font-semibold text-slate-100 mb-1">
+              Drop file here or click to browse
+            </h3>
+            <p className="text-sm text-slate-400">PDF, DOCX, TXT, MD • Max 50MB</p>
           </>
         )}
       </div>
-      
-      {uploading && status === 'uploading' && (
-        <div className="mt-6">
-          <div className="flex justify-between text-sm text-gray-300 mb-2">
-            <span className="truncate max-w-[200px]">{fileName}</span>
-            <span>{progress.toFixed(0)}%</span>
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

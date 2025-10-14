@@ -24,8 +24,7 @@ export function DocumentList({ projectId }: DocumentListProps) {
       params: { project_id: projectId },
     });
 
-    // ✅ FIXED: Changed from 'doc-list' to 'doc-list-panel' to avoid collision with ProjectsView
-    const unsubscribe = subscribe('doc-list-panel', (message) => {
+    const unsubscribe = subscribe('doc-list', (message) => {
       if (message.type === 'data' && message.data?.type === 'document_list') {
         setDocuments(message.data.documents || []);
         setLoading(false);
@@ -35,10 +34,22 @@ export function DocumentList({ projectId }: DocumentListProps) {
     return unsubscribe;
   }, [projectId, send, subscribe]);
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
   const handleDelete = useCallback(async (documentId: string, fileName: string) => {
-    if (!confirm(`Delete "${fileName}"? This will remove the document and all its chunks.`)) {
-      return;
-    }
+    if (!confirm(`Delete "${fileName}"? This cannot be undone.`)) return;
     
     setDeleting(documentId);
     
@@ -50,11 +61,13 @@ export function DocumentList({ projectId }: DocumentListProps) {
       });
       
       // Refresh list after delete
-      await send({
-        type: 'document_command',
-        method: 'documents.list',
-        params: { project_id: projectId },
-      });
+      setTimeout(() => {
+        send({
+          type: 'document_command',
+          method: 'documents.list',
+          params: { project_id: projectId },
+        });
+      }, 100);
     } catch (error) {
       console.error('Delete failed:', error);
     } finally {
@@ -66,29 +79,29 @@ export function DocumentList({ projectId }: DocumentListProps) {
     try {
       await send({
         type: 'document_command',
-        method: 'documents.retrieve',
+        method: 'documents.download',
         params: { document_id: documentId },
       });
-      
-      // ✅ FIXED: Changed from 'doc-download' to 'doc-download-panel' to avoid collision
-      const unsubscribe = subscribe('doc-download-panel', (message) => {
+
+      const unsubscribe = subscribe('doc-download', (message) => {
         if (message.type === 'data' && message.data?.type === 'document_content') {
-          // Decode base64 and trigger download
+          // Decode base64 content
           const content = atob(message.data.content);
           const bytes = new Uint8Array(content.length);
           for (let i = 0; i < content.length; i++) {
             bytes[i] = content.charCodeAt(i);
           }
           
+          // Create blob and download
           const blob = new Blob([bytes]);
-          const url = window.URL.createObjectURL(blob);
+          const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
           a.download = fileName;
           document.body.appendChild(a);
           a.click();
-          window.URL.revokeObjectURL(url);
           document.body.removeChild(a);
+          URL.revokeObjectURL(url);
           
           unsubscribe();
         }
@@ -98,126 +111,69 @@ export function DocumentList({ projectId }: DocumentListProps) {
     }
   }, [send, subscribe]);
 
-  const formatSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const formatDate = (timestamp: string | number): string => {
-    // Handle unix timestamp (number) or ISO string
-    const date = typeof timestamp === 'number' 
-      ? new Date(timestamp * 1000) // Unix timestamp in seconds
-      : new Date(timestamp);
-    
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    
-    return date.toLocaleDateString();
-  };
-
-  const getFileIcon = (fileName: string) => {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    const color = ext === 'pdf' ? 'text-red-600' 
-      : ext === 'docx' || ext === 'doc' ? 'text-blue-600'
-      : ext === 'md' ? 'text-purple-600'
-      : 'text-gray-600';
-    
-    return <FileText className={`w-5 h-5 ${color} mt-1 flex-shrink-0`} />;
-  };
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex items-center justify-center py-12 text-slate-400">
+        Loading documents...
       </div>
     );
   }
 
   if (documents.length === 0) {
     return (
-      <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
-        <FileText className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-        <p className="text-gray-400 text-sm">No documents uploaded yet</p>
-        <p className="text-gray-500 text-xs mt-1">Upload a document above to get started</p>
+      <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+        <FileText className="w-16 h-16 mb-4 text-slate-600" />
+        <p>No documents yet</p>
+        <p className="text-sm">Upload a document to get started</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2 max-h-[600px] overflow-y-auto">
+    <div className="space-y-3">
       {documents.map((doc) => (
-        <div 
-          key={doc.id} 
-          className="p-4 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors bg-gray-850"
+        <div
+          key={doc.id}
+          className="flex items-start justify-between p-4 bg-slate-700/50 rounded-lg border border-slate-600 hover:border-slate-500 transition-colors"
         >
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              {getFileIcon(doc.file_name)}
-              
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-200 truncate" title={doc.file_name}>
-                  {doc.file_name}
-                </div>
-                
-                <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                  <span>{formatSize(doc.size_bytes)}</span>
-                  
-                  {/* Only show word count if available */}
-                  {doc.word_count != null && (
-                    <>
-                      <span>•</span>
-                      <span>{doc.word_count.toLocaleString()} words</span>
-                    </>
-                  )}
-                  
-                  {/* Only show chunk count if available */}
-                  {doc.chunk_count != null && (
-                    <>
-                      <span>•</span>
-                      <span>{doc.chunk_count} chunks</span>
-                    </>
-                  )}
-                  
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    {formatDate(doc.created_at)}
-                  </span>
-                </div>
-              </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
+              <h3 className="font-medium text-slate-100 truncate">
+                {doc.file_name}
+              </h3>
             </div>
             
-            <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-              <button
-                onClick={() => handleDownload(doc.id, doc.file_name)}
-                className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition-colors"
-                title="Download"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              
-              <button
-                onClick={() => handleDelete(doc.id, doc.file_name)}
-                disabled={deleting === doc.id}
-                className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Delete"
-              >
-                {deleting === doc.id ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
-                ) : (
-                  <Trash2 className="w-4 h-4" />
-                )}
-              </button>
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <span>{formatFileSize(doc.size_bytes)}</span>
+              <span>•</span>
+              <span>{doc.word_count?.toLocaleString() || 0} words</span>
+              <span>•</span>
+              <span>{doc.chunk_count} chunks</span>
+              <span>•</span>
+              <div className="flex items-center gap-1">
+                <Calendar size={12} />
+                {formatDate(doc.created_at)}
+              </div>
             </div>
+          </div>
+          
+          <div className="flex items-center gap-2 ml-4">
+            <button
+              onClick={() => handleDownload(doc.id, doc.file_name)}
+              className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"
+              title="Download"
+            >
+              <Download size={16} />
+            </button>
+            <button
+              onClick={() => handleDelete(doc.id, doc.file_name)}
+              disabled={deleting === doc.id}
+              className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors disabled:opacity-50"
+              title="Delete"
+            >
+              <Trash2 size={16} />
+            </button>
           </div>
         </div>
       ))}

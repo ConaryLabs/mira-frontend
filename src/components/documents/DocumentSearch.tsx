@@ -64,10 +64,10 @@ export function DocumentSearch({ projectId }: DocumentSearchProps) {
   }, [handleSearch, searching, query]);
 
   const getScoreColor = (score: number): string => {
-    if (score >= 0.8) return 'text-green-600';
-    if (score >= 0.6) return 'text-blue-600';
-    if (score >= 0.4) return 'text-yellow-600';
-    return 'text-gray-600';
+    if (score >= 0.8) return 'text-green-500';
+    if (score >= 0.6) return 'text-blue-500';
+    if (score >= 0.4) return 'text-yellow-500';
+    return 'text-slate-500';
   };
 
   const getScoreLabel = (score: number): string => {
@@ -77,178 +77,111 @@ export function DocumentSearch({ projectId }: DocumentSearchProps) {
     return 'Weak match';
   };
 
-  const highlightQuery = (content: string, query: string): React.ReactNode => {
-    // Simple highlighting - split by query terms
-    const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  const highlightQuery = (text: string, query: string): React.ReactNode => {
+    if (!query.trim()) return text;
     
-    if (terms.length === 0) {
-      return content;
-    }
-
-    // Find all matches
-    const parts: { text: string; highlight: boolean }[] = [];
-    let lastIndex = 0;
-    const lowerContent = content.toLowerCase();
-
-    for (const term of terms) {
-      let index = lowerContent.indexOf(term, lastIndex);
-      while (index !== -1) {
-        // Add non-matching part
-        if (index > lastIndex) {
-          parts.push({ text: content.slice(lastIndex, index), highlight: false });
-        }
-        // Add matching part
-        parts.push({ text: content.slice(index, index + term.length), highlight: true });
-        lastIndex = index + term.length;
-        index = lowerContent.indexOf(term, lastIndex);
-      }
-    }
-
-    // Add remaining text
-    if (lastIndex < content.length) {
-      parts.push({ text: content.slice(lastIndex), highlight: false });
-    }
-
-    return (
-      <>
-        {parts.map((part, i) => 
-          part.highlight ? (
-            <mark key={i} className="bg-yellow-200 text-gray-900 px-0.5 rounded">
-              {part.text}
-            </mark>
-          ) : (
-            <span key={i}>{part.text}</span>
-          )
-        )}
-      </>
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return parts.map((part, i) => 
+      part.toLowerCase() === query.toLowerCase()
+        ? <span key={i} className="bg-yellow-500/30 text-yellow-200 font-semibold">{part}</span>
+        : part
     );
   };
 
   return (
     <div className="space-y-4">
       {/* Search Input */}
-      <div className="flex gap-2">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
+      <div>
+        <div className="flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Search across all documents..."
-            className="w-full pl-10 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={searching}
+            className="flex-1 px-4 py-3 bg-slate-900 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
+          <button
+            onClick={handleSearch}
+            disabled={searching || !query.trim()}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-white font-medium transition-colors"
+          >
+            {searching ? 'Searching...' : 'Search'}
+          </button>
         </div>
-        <button
-          onClick={handleSearch}
-          disabled={searching || !query.trim()}
-          className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          {searching ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Searching...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Search
-            </>
-          )}
-        </button>
+        <p className="text-xs text-slate-500 mt-2">
+          Semantic search finds relevant content based on meaning, not just keywords
+        </p>
       </div>
 
-      {/* Search Info */}
-      {hasSearched && !searching && (
-        <div className="text-sm text-gray-400">
-          Found {results.length} {results.length === 1 ? 'result' : 'results'} 
-          {results.length > 0 && ' (semantic search)'}
+      {/* Search Results */}
+      {!hasSearched ? (
+        <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+          <Search className="w-16 h-16 mb-4 text-slate-600" />
+          <p>Enter a query to search your documents</p>
+        </div>
+      ) : results.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+          <Search className="w-16 h-16 mb-4 text-slate-600" />
+          <p>No results found for "{query}"</p>
+          <p className="text-sm mt-2">Try different keywords or a broader query</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="text-sm text-slate-400 mb-4">
+            Found {results.length} relevant {results.length === 1 ? 'result' : 'results'}
+          </div>
+          
+          {results.map((result, index) => (
+            <div
+              key={`${result.chunk_id}-${index}`}
+              className="p-4 bg-slate-700/50 rounded-lg border border-slate-600 hover:border-slate-500 transition-colors"
+            >
+              {/* Result Header */}
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                  <span className="font-medium text-slate-100">{result.file_name}</span>
+                  {result.page_number && (
+                    <span className="text-xs text-slate-500">• Page {result.page_number}</span>
+                  )}
+                </div>
+                
+                {/* Relevance Score */}
+                <div className="flex items-center gap-2">
+                  <div className="w-24 h-2 bg-slate-600 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${
+                        result.score >= 0.8 ? 'bg-green-500' :
+                        result.score >= 0.6 ? 'bg-blue-500' :
+                        result.score >= 0.4 ? 'bg-yellow-500' :
+                        'bg-slate-500'
+                      }`}
+                      style={{ width: `${result.score * 100}%` }}
+                    />
+                  </div>
+                  <span className={`text-xs ${getScoreColor(result.score)} font-medium`}>
+                    {getScoreLabel(result.score)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Content Preview */}
+              <div className="text-sm text-slate-300 leading-relaxed">
+                {highlightQuery(result.content, query)}
+              </div>
+
+              {/* Chunk Info */}
+              <div className="flex items-center gap-2 mt-3 text-xs text-slate-500">
+                <Sparkles className="w-3 h-3" />
+                <span>Chunk {result.chunk_index + 1}</span>
+                <span>•</span>
+                <span>Score: {(result.score * 100).toFixed(1)}%</span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
-
-      {/* Results */}
-      <div className="space-y-3 max-h-[600px] overflow-y-auto">
-        {/* Empty state - no search yet */}
-        {!hasSearched && !searching && (
-          <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
-            <Sparkles className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">Semantic search across your documents</p>
-            <p className="text-gray-500 text-xs mt-1">
-              Try searching for concepts, not just keywords
-            </p>
-          </div>
-        )}
-
-        {/* Empty state - no results found */}
-        {hasSearched && !searching && results.length === 0 && query && (
-          <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
-            <Search className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No results found for "{query}"</p>
-            <p className="text-gray-500 text-xs mt-1">
-              Try different keywords or upload more documents
-            </p>
-          </div>
-        )}
-
-        {/* Loading state */}
-        {searching && (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        )}
-
-        {/* Results list */}
-        {results.map((result, i) => (
-          <div 
-            key={`${result.document_id}-${result.chunk_index}-${i}`}
-            className="p-4 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors bg-gray-850"
-          >
-            {/* Result header */}
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                <span className="font-medium text-sm text-blue-400 truncate" title={result.file_name}>
-                  {result.file_name}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-3 text-xs text-gray-500 ml-4">
-                <span className={`font-medium ${getScoreColor(result.score)}`}>
-                  {(result.score * 100).toFixed(0)}%
-                </span>
-                <span className="text-gray-600">•</span>
-                <span>Chunk {result.chunk_index + 1}</span>
-              </div>
-            </div>
-
-            {/* Score indicator */}
-            <div className="mb-3">
-              <div className="flex items-center gap-2 text-xs">
-                <div className="flex-1 bg-gray-700 rounded-full h-1">
-                  <div
-                    className={`h-1 rounded-full transition-all ${
-                      result.score >= 0.8 ? 'bg-green-500' :
-                      result.score >= 0.6 ? 'bg-blue-500' :
-                      result.score >= 0.4 ? 'bg-yellow-500' :
-                      'bg-gray-500'
-                    }`}
-                    style={{ width: `${result.score * 100}%` }}
-                  />
-                </div>
-                <span className={`${getScoreColor(result.score)} font-medium`}>
-                  {getScoreLabel(result.score)}
-                </span>
-              </div>
-            </div>
-
-            {/* Content preview with highlighting */}
-            <div className="text-sm text-gray-300 leading-relaxed">
-              {highlightQuery(result.content, query)}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
