@@ -1,5 +1,5 @@
 // src/stores/useChatStore.ts
-// FIXED: Uses centralized config for session ID + deduplication support
+// FIXED: Uses centralized config for session ID + COMPLETE deduplication support
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -56,16 +56,38 @@ interface ChatStore {
 export const useChatStore = create<ChatStore>()(
   persist(
     (set, get) => ({
-      // Initial state - FIXED: Use centralized config
+      // Initial state - FIXED: Use centralized config + dedup
       messages: [],
       currentSessionId: APP_CONFIG.SESSION_ID,
       isWaitingForResponse: false,
       isStreaming: false,
       streamingContent: '',
       streamingMessageId: null,
+      processedMessageIds: new Set<string>(), // FIXED: Initialize the Set
       
       // Message management
       addMessage: (message) => {
+        set(state => ({
+          messages: [...state.messages, message],
+          isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
+        }));
+      },
+      
+      // FIXED: Add message with deduplication
+      addMessageWithDedup: (message, messageId) => {
+        if (messageId) {
+          const { processedMessageIds } = get();
+          if (processedMessageIds.has(messageId)) {
+            console.warn('[useChatStore] Duplicate message ignored:', messageId);
+            return;
+          }
+          // Mark as processed
+          set(state => ({
+            processedMessageIds: new Set(state.processedMessageIds).add(messageId)
+          }));
+        }
+        
+        // Add the message
         set(state => ({
           messages: [...state.messages, message],
           isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
@@ -115,12 +137,18 @@ export const useChatStore = create<ChatStore>()(
           set({ isStreaming: false, isWaitingForResponse: false });
         }
       },
+      
+      // FIXED: Add clearProcessedMessageIds
+      clearProcessedMessageIds: () => {
+        set({ processedMessageIds: new Set<string>() });
+      },
     }),
     {
       name: 'mira-chat-storage',
       partialize: (state) => ({
         messages: state.messages,
         currentSessionId: state.currentSessionId,
+        // NOTE: Don't persist processedMessageIds - should reset on page load
       }),
     }
   )
