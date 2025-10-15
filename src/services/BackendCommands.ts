@@ -1,5 +1,8 @@
 // src/services/BackendCommands.ts
+// FIXED: Uses centralized config for session ID
+
 import { useWebSocketStore } from '../stores/useWebSocketStore';
+import { getSessionId } from '../config/app';
 
 export class BackendCommands {
   private send: (message: any) => Promise<void>;
@@ -288,8 +291,9 @@ export class BackendCommands {
   // ==================== CHAT / MESSAGE COMMANDS ====================
 
   async sendChat(message: string, projectId?: string, metadata?: any) {
+    // FIXED: Use centralized config instead of hardcoded value
     const fullMetadata: any = {
-      session_id: 'peter-eternal',
+      session_id: getSessionId(),
       ...metadata
     };
 

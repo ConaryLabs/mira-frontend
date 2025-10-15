@@ -1,8 +1,10 @@
 // src/stores/useAuthStore.ts
-// Authentication state - hardcoded to "peter-eternal" for now, ready for real auth later
+// Authentication state - uses centralized config
+// FIXED: Pulls from config instead of hardcoding
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { getCurrentUser, APP_CONFIG } from '../config/app';
 
 interface User {
   id: string;
@@ -23,12 +25,8 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      // Hardcoded for now - "peter-eternal" flow
-      user: {
-        id: 'peter-eternal',
-        username: 'peter',
-        displayName: 'Peter'
-      },
+      // FIXED: Use centralized config
+      user: getCurrentUser(),
       token: null,
       isAuthenticated: true,
       
@@ -36,7 +34,7 @@ export const useAuthStore = create<AuthState>()(
         // TODO: Implement real auth
         // For now, just mock success
         set({
-          user: { id: 'peter-eternal', username, displayName: username },
+          user: { id: APP_CONFIG.SESSION_ID, username, displayName: username },
           token: 'mock-token',
           isAuthenticated: true,
         });

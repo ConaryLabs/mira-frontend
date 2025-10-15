@@ -1,12 +1,12 @@
 // src/hooks/useChatMessaging.ts
 // Enhanced with waiting state for batch responses
+// FIXED: Uses centralized config for session ID
 
 import { useCallback } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useAppState, useArtifactState } from '../stores/useAppState';
-
-const ETERNAL_SESSION_ID = 'peter-eternal'; // Match backend default
+import { getSessionId } from '../config/app';
 
 export const useChatMessaging = () => {
   const send = useWebSocketStore(state => state.send);
@@ -14,11 +14,6 @@ export const useChatMessaging = () => {
   const setWaitingForResponse = useChatStore(state => state.setWaitingForResponse);
   const { currentProject, modifiedFiles, currentBranch } = useAppState();
   const { activeArtifact } = useArtifactState();
-
-  // Use the eternal session ID that matches backend
-  const getSessionId = useCallback(() => {
-    return ETERNAL_SESSION_ID;
-  }, []);
 
   // Helper to detect language from file path
   const detectLanguage = useCallback((filePath?: string) => {
@@ -62,7 +57,7 @@ export const useChatMessaging = () => {
       content,
       project_id: currentProject?.id || null,
       metadata: {
-        session_id: getSessionId(),
+        session_id: getSessionId(), // FIXED: Use centralized config
         timestamp: Date.now(),
         
         // FILE CONTEXT (use path instead of linkedFile)
@@ -94,7 +89,7 @@ export const useChatMessaging = () => {
       // Clear waiting state on error
       setWaitingForResponse(false);
     }
-  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, addMessage, setWaitingForResponse, getSessionId, detectLanguage]);
+  }, [send, currentProject, activeArtifact, modifiedFiles, currentBranch, addMessage, setWaitingForResponse, detectLanguage]);
 
   const addSystemMessage = useCallback((content: string) => {
     addMessage({
