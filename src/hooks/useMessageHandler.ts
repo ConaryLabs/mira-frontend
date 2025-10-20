@@ -1,5 +1,5 @@
 // src/hooks/useMessageHandler.ts
-// SCORCHED EARTH: Minimal artifact processing, no legacy fields
+// Updated to handle operation events from backend streaming
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -17,90 +17,140 @@ export const useMessageHandler = () => {
   } = useChatStore();
 
   useEffect(() => {
-    // Subscribe to BOTH 'response' and 'data' messages
+    // Subscribe to data and response messages
     const unsubscribe = subscribe(
       'chat-handler',
       (message) => {
-        // Enhanced logging - dump the COMPLETE message
-        console.log('[chat-handler] Inbound message:', {
+        console.log('[chat-handler] Message received:', {
           type: message.type,
-          keys: Object.keys(message),
-          dataKeys: message.data ? Object.keys(message.data) : [],
-          fullMessage: JSON.parse(JSON.stringify(message)), // Deep clone for inspection
+          dataType: message.dataType,
+          hasData: !!message.data,
+          keys: Object.keys(message)
         });
 
         if (message.type === 'response') {
-          handleChatResponse(message);
+          handleLegacyResponse(message);
         } else if (message.type === 'data') {
-          handleDataMessage(message);
+          // Check if this is an operation event wrapped in data envelope
+          const eventType = message.dataType || message.data?.type;
+          
+          if (eventType?.startsWith('operation.')) {
+            handleOperationEvent(message, eventType);
+          } else {
+            handleDataMessage(message);
+          }
         }
       },
-      ['response', 'data'] // Listen to BOTH
+      ['response', 'data']
     );
+    
     return unsubscribe;
   }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming, setWaitingForResponse]);
 
+  // Handle new operation engine events (wrapped in data envelope)
+  function handleOperationEvent(message: any, eventType: string) {
+    console.log('[chat-handler] Operation event:', eventType);
+    
+    // Data might be at top level or nested in message.data
+    const data = message.data || message;
+
+    switch (eventType) {
+      case 'operation.started':
+        // Operation started - begin streaming mode
+        startStreaming();
+        break;
+
+      case 'operation.streaming':
+        // GPT-5 text streaming chunk
+        const content = data.content || message.content;
+        if (content) {
+          appendStreamContent(content);
+        }
+        break;
+
+      case 'operation.delegated':
+        // Delegated to DeepSeek - could show status indicator
+        console.log('[chat-handler] Delegated to:', data.delegated_to || message.delegated_to, 
+                    data.reason || message.reason);
+        break;
+
+      case 'operation.artifact_preview':
+        // Artifact preview available (optional - could show loading state)
+        console.log('[chat-handler] Artifact preview:', data.path || message.path);
+        break;
+
+      case 'operation.artifact_completed':
+        // DeepSeek artifact completed - add it immediately
+        const artifact = data.artifact || message.artifact;
+        if (artifact) {
+          console.log('[chat-handler] Artifact completed:', artifact.path);
+          processArtifacts([artifact]);
+        }
+        break;
+
+      case 'operation.completed':
+        // Operation fully completed
+        endStreaming();
+        setWaitingForResponse(false);
+        console.log('[chat-handler] Operation completed');
+        break;
+
+      case 'operation.failed':
+        // Operation failed
+        endStreaming();
+        setWaitingForResponse(false);
+        const error = data.error || message.error;
+        console.error('[chat-handler] Operation failed:', error);
+        
+        // Add error message to chat
+        addMessage({
+          id: `error-${Date.now()}`,
+          role: 'assistant' as const,
+          content: `⚠️ Operation failed: ${error}`,
+          timestamp: Date.now()
+        });
+        break;
+
+      case 'operation.status_changed':
+        // Status changed (e.g., "generating" -> "delegating")
+        console.log('[chat-handler] Status:', 
+                    data.old_status || message.old_status, '->', 
+                    data.new_status || message.new_status);
+        break;
+    }
+  }
+
+  // Handle legacy data messages (for backwards compatibility)
   function handleDataMessage(message: any) {
     const data = message.data;
     if (!data) return;
 
     const dataType = data.type;
-    const messageId = data.message_id;
+    console.log('[chat-handler] Data message:', dataType);
 
-    console.log('[chat-handler] Data message:', { dataType, messageId });
-
-    // Deduplication using backend's message_id
-    if (messageId) {
-      const { processedMessageIds } = useChatStore.getState();
-      if (processedMessageIds.has(messageId)) {
-        console.warn('[chat-handler] Duplicate data message ignored:', messageId);
-        return;
-      }
-      // Mark as processed for non-delta events
-      if (dataType !== 'stream_delta' && dataType !== 'reasoning_delta') {
-        useChatStore.setState(state => ({
-          processedMessageIds: new Set(state.processedMessageIds).add(messageId)
-        }));
-      }
-    }
-    
     if (dataType === 'stream_delta') {
-      // Streaming text chunk
-      const content = message.data?.content;
-      if (content) {
-        appendStreamContent(content);
+      // Legacy streaming text chunk
+      if (data.content) {
+        appendStreamContent(data.content);
       }
     } else if (dataType === 'stream_done') {
-      // Stream complete - ALWAYS clear waiting flag
-      console.log('[chat-handler] Stream complete');
+      // Legacy stream complete
       endStreaming();
       setWaitingForResponse(false);
     } else if (dataType === 'artifact_created' || dataType === 'tool_result') {
-      // Artifact or tool result notification
-      const artifact = message.data?.artifact;
+      // Legacy artifact notification
+      const artifact = data.artifact;
       if (artifact) {
-        console.log('[chat-handler] Artifact created:', artifact.path);
         processArtifacts([artifact]);
-        return;
-      }
-
-      // If it's a tool_result, try to extract artifacts from common fields
-      const maybeArtifacts = extractArtifactsFromToolEnvelope(message.data);
-      if (maybeArtifacts.length) {
-        processArtifacts(maybeArtifacts);
       }
     }
   }
 
-  function handleChatResponse(message: any) {
-    console.log('[chat-handler] Chat response:', {
-      hasData: !!message.data,
-      hasContent: !!(message.data?.content || message.content),
-      hasArtifacts: !!(message.data?.artifacts || message.artifacts),
-      artifactCount: (message.data?.artifacts || message.artifacts || []).length,
-    });
+  // Handle legacy response messages (for backwards compatibility)
+  function handleLegacyResponse(message: any) {
+    console.log('[chat-handler] Legacy response received');
     
-    // Legacy streaming support (if backend sends this)
+    // Legacy streaming support
     if (message.streaming) {
       if (message.content) appendStreamContent(message.content);
       return;
@@ -108,38 +158,39 @@ export const useMessageHandler = () => {
     
     if (message.complete) {
       endStreaming();
+      setWaitingForResponse(false);
       return;
     }
     
+    // Full response with content
     const content = message.data?.content || message.content || message.message || '';
     const artifacts = message.data?.artifacts || message.artifacts || [];
     
-    const assistantMessage = {
-      id: `assistant-${Date.now()}`,
-      role: 'assistant' as const,
-      content,
-      timestamp: Date.now(),
-      thinking: message.thinking,
-      artifacts
-    };
-    
-    console.log('[chat-handler] Adding message:', {
-      contentLength: content.length,
-      artifactCount: artifacts.length,
-    });
-    
-    addMessage(assistantMessage);
-    
-    if (artifacts && artifacts.length > 0) {
-      console.log('[chat-handler] Processing', artifacts.length, 'artifacts from response');
-      processArtifacts(artifacts);
+    if (content || artifacts.length > 0) {
+      const assistantMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant' as const,
+        content,
+        timestamp: Date.now(),
+        thinking: message.thinking,
+        artifacts
+      };
+      
+      addMessage(assistantMessage);
+      
+      if (artifacts.length > 0) {
+        processArtifacts(artifacts);
+      }
     }
+    
+    setWaitingForResponse(false);
   }
   
+  // Process and add artifacts to the artifact panel
   function processArtifacts(artifacts: any[]) {
     const { addArtifact, setShowArtifacts } = useAppState.getState();
     
-    console.log('[chat-handler] processArtifacts called with:', artifacts);
+    console.log('[chat-handler] Processing', artifacts.length, 'artifact(s)');
     
     artifacts.forEach((artifact: any) => {
       if (!artifact || !artifact.content) {
@@ -147,7 +198,7 @@ export const useMessageHandler = () => {
         return;
       }
       
-      const path = artifact.path || artifact.title || 'untitled';
+      const path = artifact.path || artifact.file_path || artifact.title || 'untitled';
       const language = artifact.language || inferLanguage(path);
       
       const cleanArtifact: Artifact = {
@@ -164,40 +215,32 @@ export const useMessageHandler = () => {
     
     setShowArtifacts(true);
   }
-
-  function extractArtifactsFromToolEnvelope(data: any): any[] {
-    if (!data) return [];
-
-    // Direct artifact(s)
-    if (Array.isArray(data.artifacts)) return data.artifacts;
-    if (data.artifact) return [data.artifact];
-
-    // tool_result style
-    if (data.type === 'tool_result' || data.tool_name || data.tool) {
-      const candidates = [data.result, data.output, data.outputs, data.files, data.results, data.data];
-      for (const c of candidates) {
-        if (Array.isArray(c)) {
-          const arts = c.filter((x: any) => x && x.content);
-          if (arts.length) return arts;
-        } else if (c && c.content) {
-          return [c];
-        }
-      }
-    }
-
-    return [];
-  }
   
+  // Infer programming language from file path
   function inferLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
-    const map: Record<string, string> = {
-      rs: 'rust', js: 'javascript', jsx: 'javascript',
-      ts: 'typescript', tsx: 'typescript', py: 'python',
-      go: 'go', java: 'java', cpp: 'cpp', c: 'c',
-      html: 'html', css: 'css', json: 'json',
-      yaml: 'yaml', yml: 'yaml', toml: 'toml',
-      md: 'markdown', sql: 'sql', sh: 'shell', bash: 'shell'
+    const languageMap: Record<string, string> = {
+      rs: 'rust', 
+      js: 'javascript', 
+      jsx: 'javascript',
+      ts: 'typescript', 
+      tsx: 'typescript', 
+      py: 'python',
+      go: 'go', 
+      java: 'java', 
+      cpp: 'cpp', 
+      c: 'c',
+      html: 'html', 
+      css: 'css', 
+      json: 'json',
+      yaml: 'yaml', 
+      yml: 'yaml', 
+      toml: 'toml',
+      md: 'markdown', 
+      sql: 'sql', 
+      sh: 'shell', 
+      bash: 'shell'
     };
-    return map[ext || ''] || 'plaintext';
+    return languageMap[ext || ''] || 'plaintext';
   }
 };

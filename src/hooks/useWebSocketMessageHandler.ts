@@ -1,5 +1,5 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// SCORCHED EARTH: Import Artifact from useChatStore
+// Global message handler - handles non-chat messages (projects, files, git, etc.)
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
@@ -24,20 +24,17 @@ export const useWebSocketMessageHandler = () => {
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
-        // Log EVERY inbound message with its type and keys
         console.log('[WS-Global] Inbound:', {
           type: message.type,
-          keys: Object.keys(message),
           dataType: message.data?.type,
         });
 
-        // Unified router: handle both data and response envelopes for non-chat payloads
         if (message.type === 'data') {
           if (message.data) handleDataMessage(message.data);
           return;
         }
         if (message.type === 'response') {
-          // Only handle known non-chat responses here to avoid stepping on chat handler
+          // Only handle known non-chat responses to avoid stepping on chat handler
           const dt = message.data?.type;
           if (dt && (
             dt === 'file_content' ||
@@ -53,19 +50,16 @@ export const useWebSocketMessageHandler = () => {
           }
         }
         if (message.type === 'status') {
-          // Check if it's a project deletion confirmation
           if (message.message && message.message.includes('deleted')) {
             send({ type: 'project_command', method: 'project.list', params: {} });
           }
           return;
         }
         if (message.type === 'error') {
-          // Surface errors in console
           console.error('[WS-Global] Backend error:', message.error || message.message || 'Unknown error');
           return;
         }
       },
-      // IMPORTANT: listen for 'response' too so git.file → file_content responses open artifacts
       ['data', 'status', 'error', 'response']
     );
 
@@ -99,17 +93,13 @@ export const useWebSocketMessageHandler = () => {
 
   const handleDataMessage = (data: any) => {
     const dtype = data?.type;
-    if (!dtype) {
-      // No type field - likely memory payload handled elsewhere
-      return;
-    }
+    if (!dtype) return;
     
     console.log('[WS-Global] Handling data type:', dtype);
 
     switch (dtype) {
-      // ========== NEW: ARTIFACT CREATED ==========
       case 'artifact_created': {
-        console.log('[WS-Global] 🎨 artifact_created received:', data.artifact);
+        console.log('[WS-Global] Artifact created:', data.artifact);
         
         const artifactData = data.artifact;
         if (!artifactData || !artifactData.content) {
@@ -126,14 +116,12 @@ export const useWebSocketMessageHandler = () => {
           changeType: artifactData.change_type,
         };
 
-        console.log('[WS-Global] Adding artifact to viewer:', newArtifact.path);
         addArtifact(newArtifact);
         setShowArtifacts(true);
         return;
       }
 
       case 'file_content': {
-        // Be permissive about field names coming back from backend
         const rawPath = data.path || data.file_path || data.name || 'untitled';
         const path = String(rawPath).replace(/\/+/, '/').replace(/\/+/g, '/');
         const content = data.content ?? data.file_content ?? data.text ?? data.body ?? data.value;
@@ -154,23 +142,15 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
-      case 'projects': {
-        if (Array.isArray(data.projects)) setProjects(data.projects);
-        return;
-      }
-
+      case 'projects':
       case 'project_list': {
         if (Array.isArray(data.projects)) setProjects(data.projects);
         return;
       }
 
-      case 'project_created': {
-        // Refresh projects
-        send({ type: 'project_command', method: 'project.list', params: {} });
-        return;
-      }
-
-      case 'local_directory_attached': {
+      case 'project_created':
+      case 'local_directory_attached':
+      case 'project_updated': {
         send({ type: 'project_command', method: 'project.list', params: {} });
         return;
       }
@@ -186,24 +166,14 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
-      case 'file_tree': {
-        // QuickFileOpen consumes these; nothing to do globally
-        return;
-      }
-
-      // DOCUMENT PROCESSING MESSAGES - handled by DocumentUpload component
+      case 'file_tree':
       case 'document_processing_started':
       case 'document_processing_progress':
       case 'document_processed':
       case 'document_list':
       case 'document_search_results':
       case 'document_content': {
-        // handled by doc components
-        return;
-      }
-
-      case 'project_updated': {
-        send({ type: 'project_command', method: 'project.list', params: {} });
+        // Handled by other components
         return;
       }
 
