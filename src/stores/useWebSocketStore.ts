@@ -1,5 +1,5 @@
 // src/stores/useWebSocketStore.ts
-// Updated to recognize operation events from backend
+// FIXED: Added status/stream/chat_complete to KNOWN_DATA_TYPES
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -49,7 +49,7 @@ const KNOWN_MESSAGE_TYPES = new Set([
   'response',
   'data',
   'error',
-  // Operation engine events
+  // Operation engine events (can be top-level)
   'operation.started',
   'operation.streaming',
   'operation.delegated',
@@ -61,26 +61,40 @@ const KNOWN_MESSAGE_TYPES = new Set([
 ]);
 
 const KNOWN_DATA_TYPES = new Set([
+  // NEW: Streaming protocol
+  'status',           // Status updates (thinking, typing)
+  'stream',           // Token streaming (deltas)
+  'chat_complete',    // Finalization message
+  
+  // Project/file management
   'project_list',
   'projects',
   'project_updated',
+  'project_created',
+  'local_directory_attached',
+  'git_status',
+  'file_tree',
+  'file_content',
+  
+  // Documents
   'document_list',
   'document_deleted',
   'document_processing_started',
   'document_processing_progress',
   'document_processed',
   'document_content',
+  
+  // Memory
   'memory_data',
-  'local_directory_attached',
-  'git_status',
-  'file_tree',
-  'file_content',
+  
+  // Legacy streaming
   'stream_delta',
   'reasoning_delta',
   'stream_done',
   'artifact_created',
   'tool_result',
-  // Operation engine events (sent as dataType in data envelope)
+  
+  // Operation engine events (can also be wrapped in data envelope)
   'operation.started',
   'operation.streaming',
   'operation.delegated',
@@ -94,14 +108,13 @@ const KNOWN_DATA_TYPES = new Set([
 // Messages we don't need to log (too noisy)
 const SILENT_TYPES = new Set([
   'heartbeat',
+  'stream',  // Too many deltas to log
   'document_processing_progress',
-  'stream_delta',
-  'reasoning_delta',
-  'operation.streaming', // Don't log every token
 ]);
 
 export const useWebSocketStore = create<WebSocketStore>()(
   subscribeWithSelector((set, get) => ({
+    // Initial state
     socket: null,
     connectionState: 'disconnected',
     reconnectAttempts: 0,
@@ -226,7 +239,7 @@ export const useWebSocketStore = create<WebSocketStore>()(
     handleMessage: (message: WebSocketMessage) => {
       set({ lastMessage: message });
       
-      // Smart logging - don't log noisy messages
+      // Smart logging
       const dataType = message.dataType || message.data?.type;
       const shouldLog = !SILENT_TYPES.has(message.type) && 
                         !SILENT_TYPES.has(dataType);
@@ -238,18 +251,21 @@ export const useWebSocketStore = create<WebSocketStore>()(
           // Check if this is an operation event
           if (dataType?.startsWith('operation.')) {
             if (dataType === 'operation.started') {
-              console.log('[WS] Operation started:', message.operation_id);
+              console.log('[WS] Operation started:', message.data?.operation_id);
             } else if (dataType === 'operation.completed') {
-              console.log('[WS] Operation completed:', message.operation_id);
-            } else if (dataType === 'operation.failed') {
-              console.error('[WS] Operation failed:', message.operation_id, message.error);
+              console.log('[WS] Operation completed');
             } else if (dataType === 'operation.artifact_completed') {
-              console.log('[WS] Artifact completed:', message.artifact?.path);
-            } else if (dataType === 'operation.delegated') {
-              console.log('[WS] Delegated to:', message.delegated_to);
+              console.log('[WS] Artifact completed:', message.data?.artifact?.path);
             }
           } else if (dataType && KNOWN_DATA_TYPES.has(dataType)) {
-            console.log(`[WS] Data: ${dataType}`);
+            // Known data type - log briefly
+            if (dataType === 'status') {
+              console.log('[WS] Chat status:', message.data?.status);
+            } else if (dataType === 'chat_complete') {
+              console.log('[WS] Chat complete');
+            } else if (dataType !== 'stream') {
+              console.log(`[WS] Data: ${dataType}`);
+            }
           } else if (dataType) {
             console.warn(`[WS] Unknown data type: ${dataType}`);
           }
