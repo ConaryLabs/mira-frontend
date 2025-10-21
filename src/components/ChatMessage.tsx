@@ -1,5 +1,5 @@
 // src/components/ChatMessage.tsx
-// FIXED: Use batch write_files for Apply All to prevent message loss
+// FIXED: Added streaming cursor for real-time feedback
 
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -8,10 +8,10 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatMessage as ChatMessageType, Artifact } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import { useAppState } from '../stores/useAppState';
-import { Check, FileCode, AlertCircle, User, Bot } from 'lucide-react';
+import { Check, FileCode, User, Bot } from 'lucide-react';
 
 interface ChatMessageProps {
-  message: ChatMessageType;
+  message: ChatMessageType & { isStreaming?: boolean };
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
@@ -42,7 +42,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         }
       });
       
-      // Wait a bit for backend to process before marking as applied
       await new Promise(resolve => setTimeout(resolve, 100));
       
       setAppliedArtifacts(prev => new Set(prev).add(artifact.id));
@@ -79,7 +78,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
   };
   
-  // FIXED: Use batch write_files for Apply All
   const handleApplyAll = async () => {
     if (!message.artifacts || !currentProject) return;
     
@@ -87,7 +85,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     console.log('[ChatMessage] Applying all artifacts via batch write_files');
     
     try {
-      // Filter to only unapplied artifacts
       const artifactsToApply = message.artifacts.filter(a => !appliedArtifacts.has(a.id));
       
       if (artifactsToApply.length === 0) {
@@ -96,8 +93,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         return;
       }
       
-      // Use Phase 3 batch write_files tool for efficiency
-      // This sends all files in a single WebSocket message
       await send({
         type: 'file_system_command',
         method: 'write_files',
@@ -110,10 +105,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         }
       });
       
-      // Wait for backend to process
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Mark all as applied
       setAppliedArtifacts(prev => {
         const next = new Set(prev);
         artifactsToApply.forEach(a => next.add(a.id));
@@ -130,17 +123,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   
   const handleViewInArtifacts = (artifact: Artifact) => {
     console.log('[ChatMessage] Opening artifact in viewer:', artifact.id);
-    
-    // No conversion needed anymore - Artifact is unified!
     addArtifact(artifact);
     setActiveArtifact(artifact.id);
     setShowArtifacts(true);
   };
   
-  // message.artifacts is already Artifact[] from the store
   const messageArtifacts = message.artifacts || [];
-  
   const isArtifactApplied = (id: string) => appliedArtifacts.has(id);
+  
+  if (isSystem) {
+    return (
+      <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-400 italic">
+        <div className="whitespace-pre-wrap">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -191,6 +190,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             >
               {message.content}
             </ReactMarkdown>
+            
+            {/* CRITICAL FIX: Show streaming cursor when actively streaming */}
+            {message.isStreaming && (
+              <span className="inline-block w-2 h-4 ml-1 bg-blue-500 animate-pulse" />
+            )}
           </div>
           
           {/* Artifacts Section */}
@@ -211,44 +215,40 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                     className={`
                       p-3 rounded-lg border transition-colors
                       ${isPrimary 
-                        ? 'bg-blue-900/20 border-blue-700' 
-                        : 'bg-gray-800/50 border-gray-700'
+                        ? 'border-red-500/50 bg-red-900/10' 
+                        : 'border-gray-700 bg-gray-800/50'
                       }
                     `}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      {/* File Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <FileCode className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                          <span className="text-sm font-mono text-gray-300 truncate">
-                            {artifact.path || 'Untitled'}
-                          </span>
+                          <code className="text-sm text-blue-400 font-mono truncate">
+                            {artifact.path}
+                          </code>
                           {isPrimary && (
-                            <span className="px-2 py-0.5 text-xs bg-blue-700 text-blue-100 rounded">
+                            <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded">
                               Primary Fix
                             </span>
                           )}
-                          {artifact.changeType && !isPrimary && (
-                            <span className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded capitalize">
+                          {artifact.changeType && artifact.changeType !== 'primary' && (
+                            <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded">
                               {artifact.changeType}
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500">
-                          {artifact.language || 'unknown'} • {artifact.content.split('\n').length} lines
-                        </div>
+                        <p className="text-xs text-gray-500">
+                          {artifact.content.split('\n').length} lines • {artifact.language}
+                        </p>
                       </div>
                       
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleViewInArtifacts(artifact)}
                           className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
                         >
                           View
                         </button>
-                        
                         {isApplied ? (
                           <>
                             <span className="text-xs text-green-400 flex items-center gap-1">
@@ -277,7 +277,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 );
               })}
               
-              {/* Apply All Button - FIXED with batch write */}
+              {/* Apply All Button */}
               {messageArtifacts.length > 1 && messageArtifacts.some(a => a?.changeType) && (
                 <button
                   onClick={handleApplyAll}

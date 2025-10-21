@@ -1,27 +1,26 @@
 // src/stores/useChatStore.ts
-// FIXED: Uses centralized config for session ID + COMPLETE deduplication support
+// FIXED: Added isStreaming flag to ChatMessage for virtual streaming message display
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { APP_CONFIG } from '../config/app';
 
-// ===== MINIMAL UNIFIED ARTIFACT =====
 export interface Artifact {
   id: string;
-  title?: string;      // Display name (optional, path is fallback)
-  path: string;        // File path - primary identifier
-  content: string;     // File content
-  language?: string;   // Syntax highlighting (inferred from path)
-  changeType?: 'primary' | 'import' | 'type' | 'cascade';  // For error-to-fix workflow
-  timestamp?: number;  // When artifact was created
+  title?: string;
+  path: string;
+  content: string;
+  language?: string;
+  changeType?: 'primary' | 'import' | 'type' | 'cascade';
+  timestamp?: number;
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  artifacts?: Artifact[];  // Direct artifact array
+  artifacts?: Artifact[];
   timestamp: number;
+  isStreaming?: boolean;  // ADDED: Flag for streaming messages
   metadata?: {
     session_id?: string;
     project_id?: string;
@@ -37,11 +36,8 @@ interface ChatStore {
   isStreaming: boolean;
   streamingContent: string;
   streamingMessageId: string | null;
-  processedMessageIds: Set<string>; // Deduplication tracking
   
-  // Actions
   addMessage: (message: ChatMessage) => void;
-  addMessageWithDedup: (message: ChatMessage, messageId?: string) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   setMessages: (messages: ChatMessage[]) => void;
   clearMessages: () => void;
@@ -50,44 +46,20 @@ interface ChatStore {
   startStreaming: () => void;
   appendStreamContent: (content: string) => void;
   endStreaming: () => void;
-  clearProcessedMessageIds: () => void;
+  clearStreaming: () => void;  // ADDED: Clear streaming without creating message
 }
 
 export const useChatStore = create<ChatStore>()(
   persist(
     (set, get) => ({
-      // Initial state - FIXED: Use centralized config + dedup
       messages: [],
-      currentSessionId: APP_CONFIG.SESSION_ID,
+      currentSessionId: 'peter-eternal',
       isWaitingForResponse: false,
       isStreaming: false,
       streamingContent: '',
       streamingMessageId: null,
-      processedMessageIds: new Set<string>(), // FIXED: Initialize the Set
       
-      // Message management
       addMessage: (message) => {
-        set(state => ({
-          messages: [...state.messages, message],
-          isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
-        }));
-      },
-      
-      // FIXED: Add message with deduplication
-      addMessageWithDedup: (message, messageId) => {
-        if (messageId) {
-          const { processedMessageIds } = get();
-          if (processedMessageIds.has(messageId)) {
-            console.warn('[useChatStore] Duplicate message ignored:', messageId);
-            return;
-          }
-          // Mark as processed
-          set(state => ({
-            processedMessageIds: new Set(state.processedMessageIds).add(messageId)
-          }));
-        }
-        
-        // Add the message
         set(state => ({
           messages: [...state.messages, message],
           isWaitingForResponse: message.role === 'assistant' ? false : state.isWaitingForResponse
@@ -107,7 +79,6 @@ export const useChatStore = create<ChatStore>()(
       setSessionId: (id) => set({ currentSessionId: id }),
       setWaitingForResponse: (waiting) => set({ isWaitingForResponse: waiting }),
       
-      // Streaming
       startStreaming: () => set({ 
         isStreaming: true, 
         streamingContent: '', 
@@ -138,17 +109,19 @@ export const useChatStore = create<ChatStore>()(
         }
       },
       
-      // FIXED: Add clearProcessedMessageIds
-      clearProcessedMessageIds: () => {
-        set({ processedMessageIds: new Set<string>() });
-      },
+      // ADDED: Clear streaming state without creating a message
+      // Used when operation.completed provides the final message
+      clearStreaming: () => set({ 
+        isStreaming: false, 
+        streamingContent: '', 
+        streamingMessageId: null 
+      }),
     }),
     {
       name: 'mira-chat-storage',
       partialize: (state) => ({
         messages: state.messages,
         currentSessionId: state.currentSessionId,
-        // NOTE: Don't persist processedMessageIds - should reset on page load
       }),
     }
   )

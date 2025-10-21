@@ -1,5 +1,7 @@
 // src/components/MessageList.tsx
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+// FIXED: Display streaming content as a virtual message that updates in real-time
+
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { ArrowDown } from 'lucide-react';
 import { useChatStore, ChatMessage as StoreChatMessage } from '../stores/useChatStore';
@@ -15,7 +17,6 @@ const EmptyState: React.FC = () => (
   </div>
 );
 
-// CRITICAL FIX: Footer component that renders ThinkingIndicator
 const Footer: React.FC<{ isWaiting: boolean }> = ({ isWaiting }) => {
   if (!isWaiting) return null;
   
@@ -28,19 +29,49 @@ const Footer: React.FC<{ isWaiting: boolean }> = ({ isWaiting }) => {
 
 export const MessageList: React.FC = () => {
   const messages = useChatStore(state => state.messages);
+  const isStreaming = useChatStore(state => state.isStreaming);
+  const streamingContent = useChatStore(state => state.streamingContent);
+  const streamingMessageId = useChatStore(state => state.streamingMessageId);
   const isWaitingForResponse = useChatStore(state => state.isWaitingForResponse);
+  
+  // DEBUG: Log streaming state changes
+  useEffect(() => {
+    if (isStreaming) {
+      console.log('[MessageList] Streaming active, content length:', streamingContent.length);
+    }
+  }, [isStreaming, streamingContent]);
+  
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const lastMessageCountRef = useRef(0);
 
-  // Track when user scrolls away from bottom
+  // CRITICAL FIX: Create virtual streaming message that updates as chunks arrive
+  const displayMessages = useMemo(() => {
+    if (isStreaming && streamingContent && streamingMessageId) {
+      // DEBUG: Log to verify re-renders
+      console.log('[MessageList] Creating virtual streaming message:', streamingContent.length, 'chars');
+      
+      // Add a virtual message with the streaming content
+      return [
+        ...messages,
+        {
+          id: streamingMessageId,
+          role: 'assistant' as const,
+          content: streamingContent,
+          timestamp: Date.now(),
+          isStreaming: true  // Flag to show streaming cursor
+        }
+      ];
+    }
+    return messages;
+  }, [messages, isStreaming, streamingContent, streamingMessageId]);
+
   const handleAtBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom);
     setShowScrollButton(!bottom);
   }, []);
 
-  // Smooth scroll to bottom
   const scrollToBottom = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({
       index: 'LAST',
@@ -49,31 +80,39 @@ export const MessageList: React.FC = () => {
     });
   }, []);
 
-  // CRITICAL: Auto-scroll when messages change
+  // Auto-scroll when message count changes
   useEffect(() => {
-    const messageCountChanged = messages.length !== lastMessageCountRef.current;
-    lastMessageCountRef.current = messages.length;
+    const messageCountChanged = displayMessages.length !== lastMessageCountRef.current;
+    lastMessageCountRef.current = displayMessages.length;
 
     if (messageCountChanged) {
       setTimeout(() => {
         scrollToBottom();
       }, 50);
     }
-  }, [messages.length, scrollToBottom]);
+  }, [displayMessages.length, scrollToBottom]);
 
-  // CRITICAL: Auto-scroll when waiting state changes to true (thinking indicator appears)
+  // Auto-scroll when streaming content updates (keeps text visible as it arrives)
+  useEffect(() => {
+    if (isStreaming && streamingContent) {
+      setTimeout(() => {
+        scrollToBottom();
+      }, 10); // Very short delay for smooth streaming
+    }
+  }, [streamingContent, isStreaming, scrollToBottom]);
+
+  // Auto-scroll when waiting state changes to true (thinking indicator appears)
   useEffect(() => {
     if (isWaitingForResponse) {
       setTimeout(() => {
         scrollToBottom();
-      }, 100); // Slightly longer delay to let Footer render
+      }, 100);
     }
   }, [isWaitingForResponse, scrollToBottom]);
 
-  // CRITICAL: Initial scroll to bottom on mount
+  // Initial scroll to bottom on mount
   useEffect(() => {
-    if (messages.length > 0 && virtuosoRef.current) {
-      // Longer delay for initial render
+    if (displayMessages.length > 0 && virtuosoRef.current) {
       setTimeout(() => {
         virtuosoRef.current?.scrollToIndex({
           index: 'LAST',
@@ -84,7 +123,7 @@ export const MessageList: React.FC = () => {
     }
   }, []); // Only run on mount
 
-  if (messages.length === 0 && !isWaitingForResponse) {
+  if (displayMessages.length === 0 && !isWaitingForResponse) {
     return <EmptyState />;
   }
 
@@ -92,20 +131,20 @@ export const MessageList: React.FC = () => {
     <div className="h-full relative">
       <Virtuoso
         ref={virtuosoRef}
-        data={messages}
+        data={displayMessages}
         overscan={200}
-        itemContent={(index, message: StoreChatMessage) => (
+        itemContent={(index, message: StoreChatMessage & { isStreaming?: boolean }) => (
           <div className="px-4 py-2">
             <ChatMessage message={message} />
           </div>
         )}
         followOutput={false}
-        initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
+        initialTopMostItemIndex={displayMessages.length > 0 ? displayMessages.length - 1 : 0}
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={50}
         alignToBottom
         components={{
-          Footer: () => <Footer isWaiting={isWaitingForResponse} />
+          Footer: () => <Footer isWaiting={isWaitingForResponse && !isStreaming} />
         }}
       />
       
