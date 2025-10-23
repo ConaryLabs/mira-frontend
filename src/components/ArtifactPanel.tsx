@@ -1,10 +1,17 @@
 // src/components/ArtifactPanel.tsx
 // REFACTORED: Editable path, keyboard shortcuts, single Save button, Apply button
+// UPDATED: Added toast notifications for save/apply feedback
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { X, Copy, Save, FileText, Code, CheckCircle } from 'lucide-react';
+import { X, Copy, Save, FileText, Code, CheckCircle, Check, AlertCircle } from 'lucide-react';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { MonacoEditor } from './MonacoEditor';
+
+interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
 
 export const ArtifactPanel: React.FC = () => {
   const { 
@@ -22,6 +29,7 @@ export const ArtifactPanel: React.FC = () => {
   
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
+  const [toasts, setToasts] = useState<Toast[]>([]);
   
   // Update path input when active artifact changes
   useEffect(() => {
@@ -29,6 +37,19 @@ export const ArtifactPanel: React.FC = () => {
       setPathInput(activeArtifact.path);
     }
   }, [activeArtifact?.id]);
+  
+  // Toast helper
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    const toast: Toast = { id, message, type };
+    
+    setToasts(prev => [...prev, toast]);
+    
+    // Auto-dismiss after 3 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
   
   const handleContentChange = useCallback((newContent: string | undefined) => {
     if (activeArtifact && newContent !== undefined) {
@@ -41,13 +62,27 @@ export const ArtifactPanel: React.FC = () => {
 
   const handleSave = useCallback(async () => {
     if (!activeArtifact) return;
-    await save(activeArtifact.id);
-  }, [activeArtifact, save]);
+    
+    try {
+      await save(activeArtifact.id);
+      showToast(`Saved ${activeArtifact.path}`, 'success');
+    } catch (error) {
+      console.error('Save failed:', error);
+      showToast(`Failed to save ${activeArtifact.path}`, 'error');
+    }
+  }, [activeArtifact, save, showToast]);
 
   const handleApply = useCallback(async () => {
     if (!activeArtifact) return;
-    await apply(activeArtifact.id);
-  }, [activeArtifact, apply]);
+    
+    try {
+      await apply(activeArtifact.id);
+      showToast(`Applied ${activeArtifact.path} to workspace`, 'success');
+    } catch (error) {
+      console.error('Apply failed:', error);
+      showToast(`Failed to apply ${activeArtifact.path}`, 'error');
+    }
+  }, [activeArtifact, apply, showToast]);
 
   const handlePathEdit = useCallback(() => {
     if (activeArtifact) {
@@ -74,6 +109,12 @@ export const ArtifactPanel: React.FC = () => {
       }
     }
   }, [handlePathSave, activeArtifact]);
+
+  const handleCopy = useCallback(() => {
+    if (!activeArtifact) return;
+    copyArtifact(activeArtifact.id);
+    showToast('Copied to clipboard', 'info');
+  }, [activeArtifact, copyArtifact, showToast]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -138,7 +179,27 @@ export const ArtifactPanel: React.FC = () => {
   if (!activeArtifact) return null;
 
   return (
-    <div className="h-full w-full border-l border-gray-700 bg-gray-900 flex flex-col">
+    <div className="h-full w-full border-l border-gray-700 bg-gray-900 flex flex-col relative">
+      {/* Toast notifications */}
+      <div className="absolute top-4 right-4 z-50 space-y-2">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm animate-in slide-in-from-right duration-300 ${
+              toast.type === 'success'
+                ? 'bg-green-900/90 border-green-500/50 text-green-100'
+                : toast.type === 'error'
+                ? 'bg-red-900/90 border-red-500/50 text-red-100'
+                : 'bg-blue-900/90 border-blue-500/50 text-blue-100'
+            }`}
+          >
+            {toast.type === 'success' && <Check size={18} />}
+            {toast.type === 'error' && <AlertCircle size={18} />}
+            <span className="text-sm font-medium">{toast.message}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Header with tabs */}
       <div className="flex-shrink-0 border-b border-gray-700">
         <div className="flex items-center overflow-x-auto">
@@ -204,7 +265,7 @@ export const ArtifactPanel: React.FC = () => {
             {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
-                onClick={() => copyArtifact(activeArtifact.id)}
+                onClick={handleCopy}
                 className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
                 title="Copy to clipboard"
               >

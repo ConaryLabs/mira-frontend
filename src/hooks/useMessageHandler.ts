@@ -1,5 +1,5 @@
 // src/hooks/useMessageHandler.ts
-// UPDATED: Set initial status='draft' and origin='llm' for chat artifacts
+// UPDATED: Handle stream, status, chat_complete message types properly
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
@@ -14,18 +14,79 @@ export const useMessageHandler = () => {
     const unsubscribe = subscribe(
       'chat-handler',
       (message) => {
-        if (message.type === 'response') {
-          handleChatResponse(message);
-        }
+        handleMessage(message);
       },
-      ['response']
+      ['response', 'stream', 'status', 'chat_complete']  // Subscribe to all message types
     );
     return unsubscribe;
   }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming]);
 
-  function handleChatResponse(message: any) {
-    console.log('[Handler] Chat response received:', message);
+  function handleMessage(message: any) {
+    console.log('[Handler] Message received:', message.type);
     
+    switch (message.type) {
+      case 'status':
+        handleStatus(message);
+        break;
+      case 'stream':
+        handleStream(message);
+        break;
+      case 'chat_complete':
+        handleChatComplete(message);
+        break;
+      case 'response':
+        handleChatResponse(message);
+        break;
+      default:
+        console.log('[Handler] Unhandled message type:', message.type);
+    }
+  }
+
+  function handleStatus(message: any) {
+    if (message.status === 'thinking') {
+      console.log('[Handler] Starting stream (thinking status)');
+      startStreaming();
+    }
+  }
+
+  function handleStream(message: any) {
+    if (message.delta) {
+      appendStreamContent(message.delta);
+    }
+  }
+
+  function handleChatComplete(message: any) {
+    console.log('[Handler] Chat complete received');
+    
+    // End streaming
+    endStreaming();
+    
+    // Add the complete message
+    const content = message.content || '';
+    const artifacts = message.artifacts || [];
+    
+    const assistantMessage = {
+      id: `assistant-${Date.now()}`,
+      role: 'assistant' as const,
+      content,
+      timestamp: Date.now(),
+      thinking: message.thinking,
+      artifacts
+    };
+    
+    console.log('[Handler] Adding message with content length:', content.length);
+    addMessage(assistantMessage);
+    
+    if (artifacts && artifacts.length > 0) {
+      console.log('[Handler] Processing artifacts:', artifacts.length);
+      processArtifacts(artifacts);
+    }
+  }
+
+  function handleChatResponse(message: any) {
+    console.log('[Handler] Chat response received (legacy):', message);
+    
+    // Handle legacy streaming format
     if (message.streaming) {
       if (message.content) appendStreamContent(message.content);
       return;
@@ -36,6 +97,7 @@ export const useMessageHandler = () => {
       return;
     }
     
+    // Handle complete response
     const content = message.data?.content || message.content || message.message || '';
     const artifacts = message.data?.artifacts || message.artifacts || [];
     
@@ -75,8 +137,8 @@ export const useMessageHandler = () => {
         content: artifact.content,
         language,
         changeType: artifact.change_type,
-        status: 'draft',  // NEW: Set initial status
-        origin: 'llm',    // NEW: Mark as from LLM
+        status: 'draft',
+        origin: 'llm',
         timestamp: Date.now()
       };
       
