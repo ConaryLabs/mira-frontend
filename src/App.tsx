@@ -82,7 +82,7 @@ function App() {
           <>
             {/* Chat Area - Centered when no artifacts, 50% when artifacts shown */}
             <div className={`
-              flex overflow-hidden transition-all duration-300
+              min-w-0 flex overflow-hidden transition-all duration-300
               ${showArtifacts ? 'w-1/2' : 'flex-1'}
             `}>
               <div className={`

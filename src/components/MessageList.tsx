@@ -128,7 +128,7 @@ export const MessageList: React.FC = () => {
   }
 
   return (
-    <div className="h-full relative">
+    <div className="h-full relative chat-scroll">
       <Virtuoso
         ref={virtuosoRef}
         data={displayMessages}

@@ -159,7 +159,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       {/* Message Content */}
       <div className={`flex-1 ${isUser ? 'flex justify-end' : ''}`}>
         <div className={`max-w-[85%] ${isUser ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-100'} rounded-lg p-4`}>
-          <div className="prose prose-invert prose-sm max-w-none">
+          <div className="prose prose-invert prose-sm max-w-none chat-content">
             <ReactMarkdown
               components={{
                 code: ({ node, inline, className, children, ...rest }: any) => {
