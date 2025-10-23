@@ -44,6 +44,8 @@ const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws';
 // Message types we explicitly handle
 const KNOWN_MESSAGE_TYPES = new Set([
   'status',
+  'stream',
+  'chat_complete',
   'connection_ready',
   'heartbeat',
   'response',
