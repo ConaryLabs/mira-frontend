@@ -1,269 +1,105 @@
 // src/hooks/useMessageHandler.ts
-// DUAL PROTOCOL: Supports both Operation Engine AND Regular Chat flows
+// UPDATED: Set initial status='draft' and origin='llm' for chat artifacts
 
 import { useEffect } from 'react';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
-import { useChatStore, type ChatMessage, type Artifact } from '../stores/useChatStore';
+import { useChatStore, Artifact } from '../stores/useChatStore';
 import { useAppState } from '../stores/useAppState';
 
-export function useMessageHandler() {
-  const subscribe = useWebSocketStore((state) => state.subscribe);
-  const { 
-    addMessage, 
-    startStreaming, 
-    appendStreamContent, 
-    clearStreaming,
-    setWaitingForResponse 
-  } = useChatStore();
-  
-  let waitingTimeout: NodeJS.Timeout | null = null;
+export const useMessageHandler = () => {
+  const subscribe = useWebSocketStore(state => state.subscribe);
+  const { addMessage, startStreaming, appendStreamContent, endStreaming } = useChatStore();
 
   useEffect(() => {
     const unsubscribe = subscribe(
       'chat-handler',
       (message) => {
-        try {
-          // Handle top-level operation events
-          if (message.type.startsWith('operation.')) {
-            handleOperationEvent(message, message.type);
-            return;
-          }
-          
-          // Handle data-wrapped events
-          if (message.type === 'data') {
-            const eventType = message.dataType || message.data?.type;
-            
-            if (eventType?.startsWith('operation.')) {
-              // Operation Engine flow
-              handleOperationEvent(message.data || message, eventType);
-            } else if (eventType === 'status' || eventType === 'stream' || eventType === 'chat_complete') {
-              // Regular chat flow
-              handleRegularChatEvent(message.data || message, eventType);
-            }
-            return;
-          }
-          
-          // Handle top-level regular chat events
-          if (message.type === 'status' || message.type === 'stream' || message.type === 'chat_complete') {
-            handleRegularChatEvent(message, message.type);
-          }
-        } catch (error) {
-          console.error('[chat-handler] Error handling message:', error);
-          setWaitingForResponse(false);
-          if (waitingTimeout) clearTimeout(waitingTimeout);
+        if (message.type === 'response') {
+          handleChatResponse(message);
         }
       },
-      ['response', 'data', 'status', 'stream', 'chat_complete']
+      ['response']
     );
+    return unsubscribe;
+  }, [subscribe, addMessage, startStreaming, appendStreamContent, endStreaming]);
+
+  function handleChatResponse(message: any) {
+    console.log('[Handler] Chat response received:', message);
     
-    return () => {
-      unsubscribe();
-      if (waitingTimeout) clearTimeout(waitingTimeout);
-    };
-  }, [subscribe]);
-
-  // ========== REGULAR CHAT FLOW ==========
-  function handleRegularChatEvent(data: any, eventType: string) {
-    console.log('[chat-handler] Regular chat event:', eventType);
-
-    switch (eventType) {
-      case 'status':
-        if (data.status === 'thinking') {
-          console.log('[chat-handler] Starting regular chat streaming');
-          startStreaming();
-          setWaitingForResponse(true);
-          
-          // Safety timeout
-          if (waitingTimeout) clearTimeout(waitingTimeout);
-          waitingTimeout = setTimeout(() => {
-            console.warn('[chat-handler] TIMEOUT: No chunks received');
-            setWaitingForResponse(false);
-          }, 30000);
-        }
-        break;
-
-      case 'stream':
-        const delta = data.delta || data.content;
-        if (delta) {
-          console.log('[chat-handler] Stream chunk:', delta.length, 'chars');
-          
-          // Clear waiting on first chunk
-          setWaitingForResponse(false);
-          if (waitingTimeout) {
-            clearTimeout(waitingTimeout);
-            waitingTimeout = null;
-          }
-          
-          appendStreamContent(delta);
-        }
-        break;
-
-      case 'chat_complete':
-        console.log('[chat-handler] Regular chat completed');
-        setWaitingForResponse(false);
-        if (waitingTimeout) {
-          clearTimeout(waitingTimeout);
-          waitingTimeout = null;
-        }
-        
-        clearStreaming();
-        
-        // Add final message
-        const content = data.content || data.result || '';
-        const artifacts = data.artifacts || [];
-        
-        if (content || artifacts.length > 0) {
-          const assistantMessage: ChatMessage = {
-            id: `assistant-${Date.now()}`,
-            role: 'assistant',
-            content,
-            timestamp: Date.now(),
-            artifacts: artifacts.map((art: any) => ({
-              id: art.id || `artifact-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-              path: art.path || 'untitled',
-              content: art.content,
-              language: art.language || inferLanguage(art.path || ''),
-              changeType: art.kind
-            }))
-          };
-          
-          addMessage(assistantMessage);
-          artifacts.forEach((art: any) => processArtifact(art));
-        }
-        break;
-    }
-  }
-
-  // ========== OPERATION ENGINE FLOW ==========
-  function handleOperationEvent(data: any, eventType: string) {
-    console.log('[chat-handler] Operation event:', eventType);
-
-    switch (eventType) {
-      case 'operation.started':
-        console.log('[chat-handler] Starting operation streaming');
-        startStreaming();
-        setWaitingForResponse(true);
-        
-        if (waitingTimeout) clearTimeout(waitingTimeout);
-        waitingTimeout = setTimeout(() => {
-          console.warn('[chat-handler] TIMEOUT: No chunks received');
-          setWaitingForResponse(false);
-        }, 30000);
-        break;
-
-      case 'operation.streaming':
-        const content = data.content;
-        if (content) {
-          console.log('[chat-handler] Operation chunk:', content.length, 'chars');
-          
-          setWaitingForResponse(false);
-          if (waitingTimeout) {
-            clearTimeout(waitingTimeout);
-            waitingTimeout = null;
-          }
-          
-          appendStreamContent(content);
-        }
-        break;
-
-      case 'operation.artifact_preview':
-        console.log('[chat-handler] Artifact preview:', data.path);
-        break;
-
-      case 'operation.artifact_completed':
-        const artifact = data.artifact;
-        if (artifact) {
-          console.log('[chat-handler] Artifact completed:', artifact.path);
-          processArtifact(artifact);
-        }
-        break;
-
-      case 'operation.completed':
-        console.log('[chat-handler] Operation completed');
-        setWaitingForResponse(false);
-        if (waitingTimeout) {
-          clearTimeout(waitingTimeout);
-          waitingTimeout = null;
-        }
-        
-        clearStreaming();
-        
-        const artifacts = data.artifacts || [];
-        const result = data.result || '';
-        
-        if (result || artifacts.length > 0) {
-          const assistantMessage: ChatMessage = {
-            id: `assistant-${Date.now()}`,
-            role: 'assistant',
-            content: result,
-            timestamp: Date.now(),
-            artifacts: artifacts.map((art: any) => ({
-              id: art.id || `artifact-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-              path: art.path || 'untitled',
-              content: art.content,
-              language: art.language || inferLanguage(art.path || ''),
-              changeType: art.kind
-            }))
-          };
-          
-          addMessage(assistantMessage);
-          artifacts.forEach((art: any) => processArtifact(art));
-        }
-        break;
-
-      case 'operation.failed':
-        console.error('[chat-handler] Operation failed:', data.error);
-        setWaitingForResponse(false);
-        if (waitingTimeout) {
-          clearTimeout(waitingTimeout);
-          waitingTimeout = null;
-        }
-        
-        clearStreaming();
-        
-        const errorMessage: ChatMessage = {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: `Error: ${data.error || 'Unknown error'}`,
-          timestamp: Date.now()
-        };
-        addMessage(errorMessage);
-        break;
-
-      default:
-        console.log('[chat-handler] Unhandled operation event:', eventType);
-    }
-  }
-
-  function processArtifact(art: any) {
-    const { addArtifact, setShowArtifacts } = useAppState.getState();
-    
-    if (!art || !art.content) {
-      console.warn('[chat-handler] Skipping invalid artifact:', art);
+    if (message.streaming) {
+      if (message.content) appendStreamContent(message.content);
       return;
     }
     
-    addArtifact({
-      id: art.id || `artifact-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      path: art.path || 'untitled',
-      content: art.content,
-      language: art.language || inferLanguage(art.path || ''),
-      changeType: art.kind
-    });
+    if (message.complete) {
+      endStreaming();
+      return;
+    }
     
-    setShowArtifacts(true);
+    const content = message.data?.content || message.content || message.message || '';
+    const artifacts = message.data?.artifacts || message.artifacts || [];
+    
+    const assistantMessage = {
+      id: `assistant-${Date.now()}`,
+      role: 'assistant' as const,
+      content,
+      timestamp: Date.now(),
+      thinking: message.thinking,
+      artifacts
+    };
+    
+    console.log('[Handler] Adding message with content length:', content.length);
+    addMessage(assistantMessage);
+    
+    if (artifacts && artifacts.length > 0) {
+      console.log('[Handler] Processing artifacts:', artifacts.length);
+      processArtifacts(artifacts);
+    }
   }
-
+  
+  function processArtifacts(artifacts: any[]) {
+    const { addArtifact } = useAppState.getState();
+    
+    artifacts.forEach((artifact: any) => {
+      if (!artifact || !artifact.content) {
+        console.warn('[Handler] Skipping invalid artifact:', artifact);
+        return;
+      }
+      
+      const path = artifact.path || artifact.title || 'untitled';
+      const language = artifact.language || inferLanguage(path);
+      
+      const cleanArtifact: Artifact = {
+        id: artifact.id || `artifact-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        path,
+        content: artifact.content,
+        language,
+        changeType: artifact.change_type,
+        status: 'draft',  // NEW: Set initial status
+        origin: 'llm',    // NEW: Mark as from LLM
+        timestamp: Date.now()
+      };
+      
+      console.log('[Handler] Adding artifact:', cleanArtifact.path);
+      addArtifact(cleanArtifact);
+    });
+  }
+  
   function inferLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
-    const map: Record<string, string> = {
-      rs: 'rust', js: 'javascript', jsx: 'javascript',
-      ts: 'typescript', tsx: 'typescript', py: 'python',
-      go: 'go', java: 'java', cpp: 'cpp', c: 'c',
-      html: 'html', css: 'css', json: 'json',
-      yaml: 'yaml', yml: 'yaml', md: 'markdown', 
-      sql: 'sql', sh: 'shell', bash: 'shell', toml: 'toml'
-    };
-    return map[ext || ''] || 'plaintext';
+    switch (ext) {
+      case 'rs': return 'rust';
+      case 'js': case 'jsx': return 'javascript';
+      case 'ts': case 'tsx': return 'typescript';
+      case 'py': return 'python';
+      case 'json': return 'json';
+      case 'html': return 'html';
+      case 'css': return 'css';
+      case 'md': return 'markdown';
+      case 'toml': return 'toml';
+      case 'yaml': case 'yml': return 'yaml';
+      case 'sh': return 'shell';
+      default: return 'plaintext';
+    }
   }
-}
+};

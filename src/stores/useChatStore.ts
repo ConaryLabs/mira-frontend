@@ -1,8 +1,10 @@
 // src/stores/useChatStore.ts
-// FIXED: Added isStreaming flag to ChatMessage for virtual streaming message display
+// UPDATED: Added status field to Artifact for tracking save state
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+
+export type ArtifactStatus = 'draft' | 'saved' | 'applied';
 
 export interface Artifact {
   id: string;
@@ -12,6 +14,8 @@ export interface Artifact {
   language?: string;
   changeType?: 'primary' | 'import' | 'type' | 'cascade';
   timestamp?: number;
+  status?: ArtifactStatus;  // NEW: Track save state
+  origin?: 'llm' | 'user';  // NEW: Track where artifact came from
 }
 
 export interface ChatMessage {
@@ -20,7 +24,7 @@ export interface ChatMessage {
   content: string;
   artifacts?: Artifact[];
   timestamp: number;
-  isStreaming?: boolean;  // ADDED: Flag for streaming messages
+  isStreaming?: boolean;
   metadata?: {
     session_id?: string;
     project_id?: string;
@@ -46,7 +50,7 @@ interface ChatStore {
   startStreaming: () => void;
   appendStreamContent: (content: string) => void;
   endStreaming: () => void;
-  clearStreaming: () => void;  // ADDED: Clear streaming without creating message
+  clearStreaming: () => void;
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -109,8 +113,6 @@ export const useChatStore = create<ChatStore>()(
         }
       },
       
-      // ADDED: Clear streaming state without creating a message
-      // Used when operation.completed provides the final message
       clearStreaming: () => set({ 
         isStreaming: false, 
         streamingContent: '', 

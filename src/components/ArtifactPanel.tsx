@@ -1,8 +1,8 @@
 // src/components/ArtifactPanel.tsx
-// FIXED: Proper height constraints for Monaco editor + Save respects full path
+// REFACTORED: Editable path, keyboard shortcuts, single Save button, Apply button
 
-import React, { useState, useCallback } from 'react';
-import { X, Copy, Save, FileText, Code } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { X, Copy, Save, FileText, Code, CheckCircle } from 'lucide-react';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { MonacoEditor } from './MonacoEditor';
 
@@ -12,31 +12,87 @@ export const ArtifactPanel: React.FC = () => {
     activeArtifact, 
     setActiveArtifact, 
     closeArtifacts,
-    saveArtifactToFile,
-    saveArtifact,
+    save,
+    apply,
     copyArtifact,
     updateArtifact,
+    updatePath,
     removeArtifact
   } = useArtifacts();
   
+  const [isEditingPath, setIsEditingPath] = useState(false);
+  const [pathInput, setPathInput] = useState('');
+  
+  // Update path input when active artifact changes
+  useEffect(() => {
+    if (activeArtifact) {
+      setPathInput(activeArtifact.path);
+    }
+  }, [activeArtifact?.id]);
+  
   const handleContentChange = useCallback((newContent: string | undefined) => {
     if (activeArtifact && newContent !== undefined) {
-      updateArtifact(activeArtifact.id, { content: newContent });
+      updateArtifact(activeArtifact.id, { 
+        content: newContent,
+        status: 'draft'  // Mark as draft when editing
+      });
     }
   }, [activeArtifact, updateArtifact]);
 
-  const handleSaveToFile = async () => {
+  const handleSave = useCallback(async () => {
     if (!activeArtifact) return;
-    const filename = prompt('Save as (relative to project root):', activeArtifact.path);
-    if (filename) {
-      await saveArtifactToFile(activeArtifact.id, filename);
-    }
-  };
+    await save(activeArtifact.id);
+  }, [activeArtifact, save]);
 
-  const handleSave = async () => {
+  const handleApply = useCallback(async () => {
     if (!activeArtifact) return;
-    await saveArtifact(activeArtifact.id);
-  };
+    await apply(activeArtifact.id);
+  }, [activeArtifact, apply]);
+
+  const handlePathEdit = useCallback(() => {
+    if (activeArtifact) {
+      setPathInput(activeArtifact.path);
+      setIsEditingPath(true);
+    }
+  }, [activeArtifact]);
+
+  const handlePathSave = useCallback(() => {
+    if (activeArtifact && pathInput.trim()) {
+      updatePath(activeArtifact.id, pathInput.trim());
+    }
+    setIsEditingPath(false);
+  }, [activeArtifact, pathInput, updatePath]);
+
+  const handlePathKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handlePathSave();
+    } else if (e.key === 'Escape') {
+      setIsEditingPath(false);
+      if (activeArtifact) {
+        setPathInput(activeArtifact.path);
+      }
+    }
+  }, [handlePathSave, activeArtifact]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + S = Save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+      // Cmd/Ctrl + Enter = Apply
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleApply();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSave, handleApply]);
 
   const getDisplayName = (path: string): string => {
     return path.split('/').pop() || path;
@@ -47,6 +103,20 @@ export const ArtifactPanel: React.FC = () => {
       return <Code size={16} />;
     }
     return <FileText size={16} />;
+  };
+
+  const getStatusBadge = (status?: string) => {
+    if (!status || status === 'draft') return null;
+    
+    return (
+      <span className={`text-xs px-1.5 py-0.5 rounded ${
+        status === 'applied' 
+          ? 'bg-green-900/30 text-green-400'
+          : 'bg-blue-900/30 text-blue-400'
+      }`}>
+        {status === 'applied' ? 'Applied' : 'Saved'}
+      </span>
+    );
   };
 
   if (artifacts.length === 0) {
@@ -69,7 +139,7 @@ export const ArtifactPanel: React.FC = () => {
 
   return (
     <div className="h-full w-full border-l border-gray-700 bg-gray-900 flex flex-col">
-      {/* Header with tabs - FIXED HEIGHT */}
+      {/* Header with tabs */}
       <div className="flex-shrink-0 border-b border-gray-700">
         <div className="flex items-center overflow-x-auto">
           {artifacts.map((artifact) => (
@@ -89,6 +159,7 @@ export const ArtifactPanel: React.FC = () => {
                 <span className="max-w-[120px] truncate">
                   {getDisplayName(artifact.path)}
                 </span>
+                {getStatusBadge(artifact.status)}
               </button>
               <button
                 onClick={(e) => {
@@ -104,48 +175,70 @@ export const ArtifactPanel: React.FC = () => {
           ))}
         </div>
         
-        {/* Action bar - FIXED HEIGHT */}
-        <div className="h-10 px-3 flex items-center justify-between border-b border-gray-800">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="truncate max-w-[300px]">{activeArtifact.path}</span>
+        {/* Path editor + action bar */}
+        <div className="px-3 py-2 border-b border-gray-800">
+          <div className="flex items-center justify-between gap-3">
+            {/* Editable path */}
+            <div className="flex-1 min-w-0">
+              {isEditingPath ? (
+                <input
+                  type="text"
+                  value={pathInput}
+                  onChange={(e) => setPathInput(e.target.value)}
+                  onBlur={handlePathSave}
+                  onKeyDown={handlePathKeyDown}
+                  className="w-full px-2 py-1 text-sm bg-gray-800 border border-blue-500 rounded text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  autoFocus
+                />
+              ) : (
+                <button
+                  onClick={handlePathEdit}
+                  className="text-sm text-gray-400 hover:text-gray-200 truncate max-w-full text-left"
+                  title="Click to edit path"
+                >
+                  {activeArtifact.path}
+                </button>
+              )}
             </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => copyArtifact(activeArtifact.id)}
-              className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
-              title="Copy to clipboard"
-            >
-              <Copy size={16} />
-            </button>
-            <button
-              onClick={handleSave}
-              className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-600/20 rounded transition-colors"
-              title="Save"
-            >
-              <Save size={16} />
-            </button>
-            <button
-              onClick={handleSaveToFile}
-              className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
-              title="Save as..."
-            >
-              <Save size={16} />
-            </button>
-            <button
-              onClick={closeArtifacts}
-              className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
-              title="Close panel"
-            >
-              <X size={16} />
-            </button>
+            
+            {/* Actions */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => copyArtifact(activeArtifact.id)}
+                className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
+                title="Copy to clipboard"
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-blue-400 hover:text-white hover:bg-blue-600/20 border border-blue-500/30 rounded transition-colors"
+                title="Save (Cmd/Ctrl+S)"
+              >
+                <Save size={14} />
+                Save
+              </button>
+              <button
+                onClick={handleApply}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-green-400 hover:text-white hover:bg-green-600/20 border border-green-500/30 rounded transition-colors"
+                title="Apply to workspace (Cmd/Ctrl+Enter)"
+              >
+                <CheckCircle size={14} />
+                Apply
+              </button>
+              <button
+                onClick={closeArtifacts}
+                className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
+                title="Close panel"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
       
-      {/* Editor - TAKES REMAINING HEIGHT */}
+      {/* Editor - takes remaining height */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <MonacoEditor
           value={activeArtifact.content}

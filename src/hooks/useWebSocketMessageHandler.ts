@@ -1,5 +1,5 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// Global message handler - handles non-chat messages (projects, files, git, etc.)
+// UPDATED: Set initial status='draft' and origin='llm' for artifacts
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
@@ -16,7 +16,7 @@ export const useWebSocketMessageHandler = () => {
     updateGitStatus, 
     addModifiedFile,
     clearModifiedFiles,
-    setShowArtifacts,
+    setShowFileExplorer,
     addArtifact
   } = useAppState();
 
@@ -24,47 +24,54 @@ export const useWebSocketMessageHandler = () => {
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
-        console.log('[WS-Global] Inbound:', {
-          type: message.type,
-          dataType: message.data?.type,
-        });
-
-        if (message.type === 'data') {
-          if (message.data) handleDataMessage(message.data);
-          return;
-        }
-        if (message.type === 'response') {
-          // Only handle known non-chat responses to avoid stepping on chat handler
-          const dt = message.data?.type;
-          if (dt && (
-            dt === 'file_content' ||
-            dt === 'project_list' ||
-            dt === 'projects' ||
-            dt === 'git_status' ||
-            dt === 'file_tree' ||
-            dt === 'local_directory_attached' ||
-            dt === 'project_updated'
-          )) {
-            handleDataMessage(message.data);
-            return;
-          }
-        }
-        if (message.type === 'status') {
-          if (message.message && message.message.includes('deleted')) {
-            send({ type: 'project_command', method: 'project.list', params: {} });
-          }
-          return;
-        }
-        if (message.type === 'error') {
-          console.error('[WS-Global] Backend error:', message.error || message.message || 'Unknown error');
-          return;
-        }
+        console.log('WebSocket message received:', message);
+        handleMessage(message);
       },
-      ['data', 'status', 'error', 'response']
+      ['data', 'status', 'error']
     );
 
     return unsubscribe;
-  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact, setShowArtifacts]);
+  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
+
+  const handleMessage = (message: any) => {
+    if (!message || typeof message !== 'object') {
+      console.warn('Received invalid message:', message);
+      return;
+    }
+
+    switch (message.type) {
+      case 'data':
+        if (message.data) {
+          console.log('Handling data message:', message.data);
+          handleDataMessage(message.data);
+        }
+        break;
+        
+      case 'status':
+        console.log('Status:', message.message);
+        if (message.message && message.message.includes('deleted')) {
+          console.log('Project deleted, refreshing list');
+          send({
+            type: 'project_command',
+            method: 'project.list',
+            params: {}
+          });
+        }
+        break;
+        
+      case 'error':
+        console.error('Backend error:', message.error || message.message || 'Unknown error');
+        break;
+        
+      case 'heartbeat':
+        // Ignore heartbeat messages
+        break;
+        
+      default:
+        console.log('Unhandled message type:', message.type);
+        break;
+    }
+  };
 
   const detectLanguage = (filePath: string): string => {
     if (!filePath) return 'plaintext';
@@ -114,50 +121,78 @@ export const useWebSocketMessageHandler = () => {
           content: artifactData.content,
           language: artifactData.language || detectLanguage(path),
           changeType: artifactData.change_type,
+          status: 'draft',  // NEW: Set initial status
+          origin: 'llm',    // NEW: Mark as coming from LLM
+          timestamp: Date.now()
         };
 
         addArtifact(newArtifact);
-        setShowArtifacts(true);
         return;
       }
 
       case 'file_content': {
         const rawPath = data.path || data.file_path || data.name || 'untitled';
         const path = String(rawPath).replace(/\/+/, '/').replace(/\/+/g, '/');
-        const content = data.content ?? data.file_content ?? data.text ?? data.body ?? data.value;
-        if (typeof content === 'undefined') {
-          console.warn('[WS-Global] file_content received without content field', data);
-          return;
-        }
+        const content = data.content ?? data.file_content ?? data.text ?? data.body ?? '// No content';
 
         const newArtifact: Artifact = {
           id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           path,
           content,
           language: detectLanguage(path),
+          status: 'saved',  // Files from disk are already saved
+          origin: 'user',   // User opened this file
+          timestamp: Date.now()
         };
 
+        console.log('[WS-Global] File content artifact:', newArtifact.path);
         addArtifact(newArtifact);
-        setShowArtifacts(true);
+        setShowFileExplorer(true);
         return;
       }
 
-      case 'projects':
+      case 'projects': {
+        console.log('Projects data received:', data.projects?.length || 0, 'projects');
+        if (data.projects) {
+          setProjects(data.projects);
+        }
+        return;
+      }
+
       case 'project_list': {
-        if (Array.isArray(data.projects)) setProjects(data.projects);
+        console.log('Processing project list:', data.projects?.length || 0, 'projects');
+        if (data.projects && Array.isArray(data.projects)) {
+          setProjects(data.projects);
+          console.log('Projects updated in state');
+        }
         return;
       }
 
-      case 'project_created':
-      case 'local_directory_attached':
-      case 'project_updated': {
-        send({ type: 'project_command', method: 'project.list', params: {} });
+      case 'project_created': {
+        console.log('Project created:', data.project?.name);
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
+        return;
+      }
+
+      case 'local_directory_attached': {
+        console.log('Local directory attached:', data.path);
+        send({
+          type: 'project_command',
+          method: 'project.list',
+          params: {}
+        });
         return;
       }
 
       case 'git_status': {
+        console.log('Git status update:', data.status);
         if (data.status === 'synced' || data.status === 'modified') {
           updateGitStatus(data.status);
+          
           if (data.modified_files) {
             clearModifiedFiles();
             data.modified_files.forEach((file: string) => addModifiedFile(file));
@@ -166,20 +201,8 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
-      case 'file_tree':
-      case 'document_processing_started':
-      case 'document_processing_progress':
-      case 'document_processed':
-      case 'document_list':
-      case 'document_search_results':
-      case 'document_content': {
-        // Handled by other components
-        return;
-      }
-
       default:
         console.log('[WS-Global] Unhandled data type:', dtype);
-        return;
     }
   };
 };
