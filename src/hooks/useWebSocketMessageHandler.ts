@@ -1,8 +1,9 @@
 // src/hooks/useWebSocketMessageHandler.ts
-// UPDATED: Set initial status='draft' and origin='llm' for artifacts
+// FIXED: Handle operation.streaming, operation.artifact_completed, operation.completed
 
 import { useEffect } from 'react';
 import { useAppState } from '../stores/useAppState';
+import { useChatStore } from '../stores/useChatStore';
 import { useWebSocketStore } from '../stores/useWebSocketStore';
 import type { Artifact } from '../stores/useChatStore';
 
@@ -12,7 +13,6 @@ export const useWebSocketMessageHandler = () => {
   
   const { 
     setProjects,
-    setCurrentProject, 
     updateGitStatus, 
     addModifiedFile,
     clearModifiedFiles,
@@ -20,18 +20,24 @@ export const useWebSocketMessageHandler = () => {
     addArtifact
   } = useAppState();
 
+  const {
+    startStreaming,
+    appendStreamContent,
+    endStreaming,
+    addMessage
+  } = useChatStore();
+
   useEffect(() => {
     const unsubscribe = subscribe(
       'global-message-handler',
       (message) => {
-        console.log('WebSocket message received:', message);
         handleMessage(message);
       },
       ['data', 'status', 'error']
     );
 
     return unsubscribe;
-  }, [subscribe, setProjects, setCurrentProject, updateGitStatus, addModifiedFile, clearModifiedFiles, send, addArtifact]);
+  }, [subscribe]);
 
   const handleMessage = (message: any) => {
     if (!message || typeof message !== 'object') {
@@ -42,7 +48,6 @@ export const useWebSocketMessageHandler = () => {
     switch (message.type) {
       case 'data':
         if (message.data) {
-          console.log('Handling data message:', message.data);
           handleDataMessage(message.data);
         }
         break;
@@ -105,8 +110,89 @@ export const useWebSocketMessageHandler = () => {
     console.log('[WS-Global] Handling data type:', dtype);
 
     switch (dtype) {
+      // NEW OPERATION PROTOCOL
+      case 'operation.streaming': {
+        // Token streaming during response
+        if (data.content) {
+          appendStreamContent(data.content);
+        }
+        return;
+      }
+
+      case 'operation.artifact_completed': {
+        // Artifact completed - add it immediately
+        console.log('[WS-Global] Artifact completed:', data.artifact);
+        
+        if (!data.artifact || !data.artifact.content) {
+          console.warn('[WS-Global] Invalid artifact:', data.artifact);
+          return;
+        }
+
+        const artifact = data.artifact;
+        const newArtifact: Artifact = {
+          id: artifact.id || `artifact-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          path: artifact.path || 'untitled',
+          content: artifact.content,
+          language: artifact.language || detectLanguage(artifact.path),
+          status: 'draft',
+          origin: 'llm',
+          timestamp: Date.now()
+        };
+
+        console.log('[WS-Global] Adding artifact:', newArtifact.path);
+        addArtifact(newArtifact);
+        return;
+      }
+
+      case 'operation.completed': {
+        // Operation done - finalize streaming and add message
+        console.log('[WS-Global] Operation completed');
+        
+        // Get the final content from streaming buffer
+        const streamingContent = useChatStore.getState().streamingContent;
+        
+        // End streaming (this adds the message)
+        endStreaming();
+        
+        // Artifacts should already be added via operation.artifact_completed
+        // But if they're in the final message, add them too
+        if (data.artifacts && data.artifacts.length > 0) {
+          console.log('[WS-Global] Processing artifacts from completed:', data.artifacts.length);
+          data.artifacts.forEach((artifact: any) => {
+            if (artifact && artifact.content) {
+              const newArtifact: Artifact = {
+                id: artifact.id || `artifact-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                path: artifact.path || 'untitled',
+                content: artifact.content,
+                language: artifact.language || detectLanguage(artifact.path),
+                status: 'draft',
+                origin: 'llm',
+                timestamp: Date.now()
+              };
+              addArtifact(newArtifact);
+            }
+          });
+        }
+        
+        return;
+      }
+
+      case 'operation.started': {
+        // Operation started - begin streaming
+        console.log('[WS-Global] Operation started:', data.operation_id);
+        startStreaming();
+        return;
+      }
+
+      case 'operation.status_changed': {
+        // Status update - log it
+        console.log('[WS-Global] Operation status:', data.status);
+        return;
+      }
+
+      // LEGACY: Old artifact_created format
       case 'artifact_created': {
-        console.log('[WS-Global] Artifact created:', data.artifact);
+        console.log('[WS-Global] Legacy artifact created:', data.artifact);
         
         const artifactData = data.artifact;
         if (!artifactData || !artifactData.content) {
@@ -121,8 +207,8 @@ export const useWebSocketMessageHandler = () => {
           content: artifactData.content,
           language: artifactData.language || detectLanguage(path),
           changeType: artifactData.change_type,
-          status: 'draft',  // NEW: Set initial status
-          origin: 'llm',    // NEW: Mark as coming from LLM
+          status: 'draft',
+          origin: 'llm',
           timestamp: Date.now()
         };
 
@@ -130,6 +216,7 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
+      // FILE OPERATIONS
       case 'file_content': {
         const rawPath = data.path || data.file_path || data.name || 'untitled';
         const path = String(rawPath).replace(/\/+/, '/').replace(/\/+/g, '/');
@@ -140,8 +227,8 @@ export const useWebSocketMessageHandler = () => {
           path,
           content,
           language: detectLanguage(path),
-          status: 'saved',  // Files from disk are already saved
-          origin: 'user',   // User opened this file
+          status: 'saved',
+          origin: 'user',
           timestamp: Date.now()
         };
 
@@ -151,6 +238,7 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
+      // PROJECT MANAGEMENT
       case 'projects': {
         console.log('Projects data received:', data.projects?.length || 0, 'projects');
         if (data.projects) {
@@ -188,6 +276,7 @@ export const useWebSocketMessageHandler = () => {
         return;
       }
 
+      // GIT STATUS
       case 'git_status': {
         console.log('Git status update:', data.status);
         if (data.status === 'synced' || data.status === 'modified') {
